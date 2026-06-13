@@ -2085,6 +2085,41 @@
     z-index: 1;
   }
 
+
+  /* ── BANDEAU PROCHAINEMENT ── */
+  .card-prochainement {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+    overflow: hidden;
+  }
+  .card-prochainement::before {
+    content: 'PROCHAINEMENT';
+    position: absolute;
+    top: 58px;
+    right: -52px;
+    width: 280px;
+    padding: 10px 0;
+    background: transparent;
+    color: #ff1111;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.85rem;
+    font-weight: 900;
+    letter-spacing: 3px;
+    text-align: center;
+    border-top: 3px solid #ff1111;
+    border-bottom: 3px solid #ff1111;
+    transform: rotate(32deg);
+    animation: blink-badge 1.2s ease-in-out infinite;
+    text-shadow: 0 0 10px rgba(255,30,30,0.9), 0 0 20px rgba(255,30,30,0.6), 0 0 35px rgba(255,30,30,0.3);
+    box-shadow: 0 0 12px rgba(255,30,30,0.6);
+  }
+  @keyframes blink-badge {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.2; }
+  }
+
 </style>
 </head>
 <body>
@@ -2189,7 +2224,8 @@
         </div>
       </div>
 
-      <div class="activity-card" style="cursor:pointer;">
+      <div class="activity-card" style="cursor:pointer; position:relative; overflow:hidden;">
+        <div class="card-prochainement"></div>
         <img src="blindtest.jpg" alt="Blind Test Musical GameZone" style="width:100%;height:320px;object-fit:cover;display:block;object-position:center top;">
         <div class="card-icon" style="background: rgba(255,100,200,0.15); border: 1px solid rgba(255,100,200,0.4);">🎵</div>
         <div class="card-content">
@@ -2231,7 +2267,8 @@
         </div>
       </div>
 
-      <div class="activity-card" style="cursor:pointer;">
+      <div class="activity-card" style="cursor:pointer; position:relative; overflow:hidden;">
+        <div class="card-prochainement"></div>
         <img src="bar.avif" alt="Snacking & Apéro GameZone" style="width:100%;height:320px;object-fit:cover;display:block;object-position:center;">
         <div class="card-icon" style="background: rgba(255,160,50,0.15); border: 1px solid rgba(255,160,50,0.4);">🌭</div>
         <div class="card-content">
