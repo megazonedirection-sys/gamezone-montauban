@@ -1339,6 +1339,7 @@
     { debut: '2026-02-21', fin: '2026-03-08', label: 'Hiver' },
     { debut: '2026-04-18', fin: '2026-05-03', label: 'Printemps' },
     // Pont Ascension 2026 (13–18 mai)
+    { debut: '2026-05-13', fin: '2026-05-17', label: 'Pont Ascension' },
     // Été 2026
     { debut: '2026-07-04', fin: '2026-08-31', label: 'Été' },
     // ── 2026-2027 ──
@@ -1380,11 +1381,11 @@
 
     if (periode === 'normal') {
       const horairesNormal = {
-        2: { label: 'Mardi',     ouverture: 17, fermeture: 22 },
+        2: { label: 'Mardi',     ouverture: 17, fermeture: 21 },
         3: { label: 'Mercredi',  ouverture: 14, fermeture: 20 },
-        4: { label: 'Jeudi',     ouverture: 17, fermeture: 22 },
-        5: { label: 'Vendredi',  ouverture: 17, fermeture: 23 },
-        6: { label: 'Samedi',    ouverture: 11, fermeture: 23 },
+        4: { label: 'Jeudi',     ouverture: 17, fermeture: 21 },
+        5: { label: 'Vendredi',  ouverture: 17, fermeture: 22, fermetureMin: 15 },
+        6: { label: 'Samedi',    ouverture: 11, fermeture: 22, fermetureMin: 15 },
         0: { label: 'Dimanche',  ouverture: 11, fermeture: 19 },
       };
       if (!horairesNormal[dow]) return { ouvert: false };
@@ -1394,8 +1395,8 @@
     if (periode === 'vacances' || periode === 'ete') {
       const ferm = (periode === 'ete') ? 20 : 22;
       const horairesvac = {
-        2: { label: 'Mardi',    ouverture: 14, fermeture: ferm },
-        3: { label: 'Mercredi', ouverture: 14, fermeture: ferm },
+        2: { label: 'Mardi',    ouverture: 14, fermeture: (periode === 'vacances') ? 20 : ferm },
+        3: { label: 'Mercredi', ouverture: 14, fermeture: (periode === 'vacances') ? 20 : ferm },
         4: { label: 'Jeudi',    ouverture: 14, fermeture: ferm },
         5: { label: 'Vendredi', ouverture: 14, fermeture: ferm },
         6: { label: 'Samedi',   ouverture: 14, fermeture: ferm },
@@ -1436,7 +1437,7 @@
 
   function genCreneaux(info, minTimeOverride) {
     const ouv  = Math.max(info.ouverture * 60, minTimeOverride || 0);
-    const ferm = info.fermeture * 60;
+    const ferm = info.fermeture * 60 + (info.fermetureMin || 0);
     const fmt  = m => `${String(Math.floor(m/60)).padStart(2,'0')}h${String(m%60).padStart(2,'0')}`;
     const SLOT_18H55 = 18 * 60 + 55;
     return ALL_SLOTS_MIN
@@ -1504,7 +1505,7 @@
 
       dateInput.setCustomValidity('');
       hintDate.style.color = 'var(--neon-cyan)';
-      hintDate.textContent = `${getPeriodeLabel(info.periode)} · Ouvert ${info.ouverture}h–${info.fermeture}h`;
+      hintDate.textContent = `${getPeriodeLabel(info.periode)} · Ouvert ${info.ouverture}h–${info.fermeture}${info.fermetureMin ? 'h' + String(info.fermetureMin).padStart(2,'0') : 'h'}`;
 
       const isWeekend = (dc.getDay() === 6 || dc.getDay() === 0);
       const minTimeOverride = (isVrEscapeActivity() && isWeekend) ? 14 * 60 : 0;
