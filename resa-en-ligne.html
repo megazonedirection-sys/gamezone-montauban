@@ -567,33 +567,33 @@
           <span id="laser-total" style="font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;color:#44ff88;text-shadow:0 0 8px rgba(68,255,136,0.5);">0</span>
           <span style="font-size:0.8rem;color:var(--text-muted);">/ 24 joueurs maximum</span>
         </div>
-        <span class="field-error" id="err-laser-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser 24 joueurs. Veuillez réduire.</span>
+        <span class="field-error" id="err-laser-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser 12 joueurs. Veuillez réduire.</span>
         <span class="field-error" id="err-laser-min" style="margin-top:0.5rem;">Veuillez indiquer au moins 1 joueur au total.</span>
       </div>
 
       <!-- CHAMPS BLIND TEST -->
       <div id="blind-fields" class="special-block" style="border-color:rgba(255,45,107,0.25);background:rgba(255,45,107,0.03);">
-        <div class="special-block-title" style="color:var(--neon-pink);">🎵 Répartition des joueurs (min 4 · max 24)</div>
+        <div class="special-block-title" style="color:var(--neon-pink);">🎵 Répartition des joueurs (min 4 · max 12)</div>
         <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
           <div class="form-group">
             <label for="blind-adultes">Adultes *</label>
-            <input type="number" id="blind-adultes" name="blind_adultes" placeholder="0" min="0" max="24" value="0" oninput="onBlindChange()">
+            <input type="number" id="blind-adultes" name="blind_adultes" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange()">
           </div>
           <div class="form-group">
             <label for="blind-ados">Ados 14+ *</label>
-            <input type="number" id="blind-ados" name="blind_ados" placeholder="0" min="0" max="24" value="0" oninput="onBlindChange()">
+            <input type="number" id="blind-ados" name="blind_ados" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange()">
           </div>
           <div class="form-group">
             <label for="blind-enfants">Enf. 12+ *</label>
-            <input type="number" id="blind-enfants" name="blind_enfants" placeholder="0" min="0" max="24" value="0" oninput="onBlindChange()">
+            <input type="number" id="blind-enfants" name="blind_enfants" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange()">
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(255,45,107,0.06);border:1px solid rgba(255,45,107,0.15);margin-top:0.25rem;">
           <span style="font-family:'Orbitron',monospace;font-size:0.6rem;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;">Total</span>
           <span id="blind-total" style="font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;color:var(--neon-pink);text-shadow:0 0 8px rgba(255,45,107,0.5);">0</span>
-          <span style="font-size:0.8rem;color:var(--text-muted);">/ 24 joueurs · minimum 4</span>
+          <span style="font-size:0.8rem;color:var(--text-muted);">/ 12 joueurs · minimum 4</span>
         </div>
-        <span class="field-error" id="err-blind-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser 24 joueurs.</span>
+        <span class="field-error" id="err-blind-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser 12 joueurs.</span>
         <span class="field-error" id="err-blind-min" style="margin-top:0.5rem;">Minimum 4 joueurs requis pour le Blind Test.</span>
       </div>
 
@@ -956,8 +956,8 @@
 
     const totalEl = document.getElementById('blind-total');
     totalEl.textContent = total;
-    totalEl.style.color      = total > 24 ? '#ff4444' : 'var(--neon-pink)';
-    totalEl.style.textShadow = total > 24 ? '0 0 8px rgba(255,0,0,0.5)' : '0 0 8px rgba(255,45,107,0.5)';
+    totalEl.style.color      = total > 12 ? '#ff4444' : 'var(--neon-pink)';
+    totalEl.style.textShadow = total > 12 ? '0 0 8px rgba(255,0,0,0.5)' : '0 0 8px rgba(255,45,107,0.5)';
 
     document.getElementById('nb-personnes').value = total > 0 ? total : '';
     document.getElementById('err-blind-total').classList.remove('visible');
@@ -1106,8 +1106,8 @@
       const ad = parseInt(document.getElementById('blind-ados').value)    || 0;
       const e  = parseInt(document.getElementById('blind-enfants').value) || 0;
       const total = a + ad + e;
-      if (total < 4)  { document.getElementById('err-blind-min').classList.add('visible');   valid = false; }
-      else if (total > 24) { document.getElementById('err-blind-total').classList.add('visible'); valid = false; }
+      if (total < 4) { document.getElementById('err-blind-min').classList.add('visible');   valid = false; }
+      else if (total > 12) { document.getElementById('err-blind-total').classList.add('visible'); valid = false; }
     }
 
     // Champs VR Zone
@@ -1139,7 +1139,7 @@
       if (total < 1) {
         document.getElementById('err-laser-min').classList.add('visible');
         valid = false;
-      } else if (total > 24) {
+      } else if (total > 12) {
         document.getElementById('err-laser-total').classList.add('visible');
         valid = false;
       }
