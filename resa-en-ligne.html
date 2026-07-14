@@ -835,27 +835,20 @@
     } catch(e) { console.warn('Lock check:', e); }
 
     // 4. Capacité disponible sur ce créneau ?
+    // On lit le nœud public "dispo" (agrégat sans données personnelles),
+    // et non plus "bookings" (réservé au staff — coordonnées clients).
     const max = MAX_CAP[activite] || 24;
     let usedPers = 0;
+    const dispoKey = `${activite}|${date}|${time}`;
     try {
-      // Pour BT : 1 seule réservation par créneau
+      const dispoSnap = await db.ref(`dispo/${dispoKey}`).once('value');
+      usedPers = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
+
+      // Pour BT : 1 seule réservation par créneau (toute présence = complet)
       if (activite === 'bt') {
-        const btSnap = await db.ref('bookings')
-          .orderByKey()
-          .startAt(`bt|${date}|${time}|`)
-          .endAt(`bt|${date}|${time}|~`)
-          .once('value');
-        if (btSnap.exists()) return { auto: false, reason: 'creneau_complet', available: 0 };
+        if (usedPers > 0) return { auto: false, reason: 'creneau_complet', available: 0 };
       } else {
         // Laser et VR : somme des pers existants
-        const snap = await db.ref('bookings')
-          .orderByKey()
-          .startAt(`${activite}|${date}|${time}|`)
-          .endAt(`${activite}|${date}|${time}|~`)
-          .once('value');
-        if (snap.exists()) {
-          snap.forEach(b => { usedPers += b.val().pers || 1; });
-        }
         if (usedPers + pers > max)
           return { auto: false, reason: 'capacite_insuffisante', available: max - usedPers };
       }
