@@ -485,11 +485,44 @@
         </div>
         <div class="form-group">
           <label for="creneau">Créneau horaire *</label>
-          <select id="creneau" name="creneau">
+          <select id="creneau" name="creneau" onchange="onSession1Change()">
             <option value="" disabled selected>Choisir une date d'abord</option>
           </select>
           <span class="date-hint" id="creneau-hint" style="color:#ff8800;"></span>
           <span class="field-error" id="err-creneau">Veuillez choisir un créneau disponible.</span>
+        </div>
+      </div>
+
+      <!-- Sessions multiples (Laser Game / VR Zone) -->
+      <div id="multi-session-block" style="display:none;">
+        <div class="form-row" style="grid-template-columns:1fr;">
+          <div class="form-group">
+            <label for="nb-sessions">Nombre de sessions</label>
+            <select id="nb-sessions" name="nb_sessions" onchange="onNbSessionsChange()">
+              <option value="1" selected>1 session</option>
+              <option value="2">2 sessions</option>
+              <option value="3">3 sessions</option>
+            </select>
+            <span class="date-hint" id="multi-session-hint" style="color:var(--neon-cyan);"></span>
+          </div>
+        </div>
+        <div class="form-row" id="session2-row" style="display:none;">
+          <div class="form-group">
+            <label for="creneau2">Créneau session 2 *</label>
+            <select id="creneau2" name="creneau2" onchange="onSession2Change()">
+              <option value="" disabled selected>Choisir le créneau 1 d'abord</option>
+            </select>
+            <span class="field-error" id="err-creneau2">Veuillez choisir un créneau disponible.</span>
+          </div>
+        </div>
+        <div class="form-row" id="session3-row" style="display:none;">
+          <div class="form-group">
+            <label for="creneau3">Créneau session 3 *</label>
+            <select id="creneau3" name="creneau3">
+              <option value="" disabled selected>Choisir le créneau 2 d'abord</option>
+            </select>
+            <span class="field-error" id="err-creneau3">Veuillez choisir un créneau disponible.</span>
+          </div>
         </div>
       </div>
 
@@ -874,21 +907,17 @@
     return msgs[reason] || '⏳ Votre demande est en cours de traitement.';
   }
 
-  async function pushToCalendit(fd) {
-    if (!db) throw new Error('Firebase non disponible');
-    // Lecture directe DOM — évite les bugs FormData avec HTMLInputElement
-    const prenom   = (document.getElementById('prenom')?.value   || '').trim();
-    const nom_val  = (document.getElementById('nom')?.value      || '').trim();
-    const email    = (document.getElementById('email')?.value    || '').trim();
-    const tel      = (document.getElementById('telephone')?.value || '').replace(/\s/g, '');
+  // Extrait le contexte d'une session (activité, date, heure, joueurs,
+  // répartition d'âge) à partir du formulaire et d'un créneau donné.
+  // Factorisé pour être réutilisé à la fois par la pré-vérification
+  // (dry-run, sans écriture) et par la soumission réelle.
+  function extractSessionContext(fd, creneau) {
     const activite = fd.get('activite') || '';
     const date     = fd.get('date')   || '';
-    const creneau  = fd.get('creneau') || '';
     const pers     = parseInt(fd.get('nb_personnes') || '1');
     const actKey   = mapActiviteToCalendit(activite);
     const time     = creneauToTime(creneau);
 
-    // ── Répartition d'âge (Laser Game uniquement pour l'instant) ──
     let ageBreakdown = null;
     let profil = null;
     if (actKey === 'laser') {
@@ -901,6 +930,27 @@
       };
       profil = computeGroupProfile(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes);
     }
+    return { activite, actKey, date, time, creneau, pers, ageBreakdown, profil };
+  }
+
+  // Vérifie si une session serait auto-validée SANS rien écrire dans Firebase
+  // (utilisé pour vérifier toutes les sessions avant de confirmer quoi que ce soit).
+  async function checkSessionAvailability(fd, creneau) {
+    const ctx = extractSessionContext(fd, creneau);
+    const check = await checkAutoValidation(ctx.actKey, ctx.activite, ctx.date, ctx.time, ctx.pers, ctx.ageBreakdown);
+    return { ...ctx, auto: check.auto, reason: check.reason };
+  }
+
+  async function pushToCalendit(fd, creneauOverride) {
+    if (!db) throw new Error('Firebase non disponible');
+    // Lecture directe DOM — évite les bugs FormData avec HTMLInputElement
+    const prenom   = (document.getElementById('prenom')?.value   || '').trim();
+    const nom_val  = (document.getElementById('nom')?.value      || '').trim();
+    const email    = (document.getElementById('email')?.value    || '').trim();
+    const tel      = (document.getElementById('telephone')?.value || '').replace(/\s/g, '');
+    const creneau  = creneauOverride || fd.get('creneau') || '';
+    const ctx      = extractSessionContext(fd, creneau);
+    const { activite, actKey, date, time, pers, ageBreakdown, profil } = ctx;
 
     // ── Vérification auto-validation ──
     const check = await checkAutoValidation(actKey, activite, date, time, pers, ageBreakdown);
@@ -929,32 +979,64 @@
   }
 
   // ── Notification staff par EmailJS ──
-  async function sendStaffEmail(fd, result) {
-    const demande = result.demande || result;
-    const [y, mo, da] = (demande.date || '').split('-');
-    const dateF = da ? `${da}/${mo}/${y}` : demande.date;
+  async function sendStaffEmail(fd, results, droppedSessions) {
+    // Compatibilité : accepte un résultat unique ou un tableau de résultats (sessions multiples)
+    const list = Array.isArray(results) ? results : [results];
+    const dropped = droppedSessions || [];
 
-    const isAuto = result.autoValidated;
-    const statusLabel = isAuto
-      ? '✅ AUTO-CONFIRMÉE — réservation ajoutée directement dans CalendIT'
-      : `⏳ EN ATTENTE — ${getWaitingMessage(result.reason, demande.activite)}`;
+    // Infos client lues directement du formulaire (robuste même si aucune
+    // session n'a pu être soumise — évite de dépendre de list[0])
+    const prenom = (document.getElementById('prenom')?.value || '').trim();
+    const nom_val= (document.getElementById('nom')?.value || '').trim();
+    const email  = (document.getElementById('email')?.value || '').trim();
+    const tel    = (document.getElementById('telephone')?.value || '').replace(/\s/g, '');
+    const activiteLabel = fd.get('activite') || '';
+    const pers   = fd.get('nb_personnes') || '';
+    const dateStr = fd.get('date') || '';
+    const [y, mo, da] = dateStr.split('-');
+    const dateF = da ? `${da}/${mo}/${y}` : dateStr;
+    const comment = buildComment(fd);
+
+    const totalSessions = list.length + dropped.length;
+
+    const confirmedBlock = list.map((r, i) => {
+      const d = r.demande || r;
+      const isAuto = r.autoValidated;
+      const statusLabel = isAuto
+        ? '✅ AUTO-CONFIRMÉE — réservation ajoutée directement dans CalendIT'
+        : `⏳ EN ATTENTE — ${getWaitingMessage(r.reason, d.activite)}`;
+      const label = totalSessions > 1 ? `SESSION ${i + 1} — ${d.time}\n` : '';
+      return `${label}📌 STATUT : ${statusLabel}\n🕐 Créneau    : ${d.time}\n`;
+    }).join('\n───────────────────────────────────\n');
+
+    const droppedBlock = dropped.length
+      ? `\n───────────────────────────────────\n❌ SESSIONS NON RETENUES (règles/places non respectées)\n───────────────────────────────────\n` +
+        dropped.map(c => `🕐 Créneau ${c.time} : ${getWaitingMessage(c.reason, c.activite)}`).join('\n')
+      : '';
+
+    const allAuto = list.length > 0 && list.every(r => r.autoValidated);
 
     const message =
-      `🎯 NOUVELLE DEMANDE — Game Zone Montauban\n\n` +
-      `📌 STATUT : ${statusLabel}\n\n` +
+      `🎯 NOUVELLE DEMANDE — Game Zone Montauban${totalSessions > 1 ? ` (${totalSessions} sessions demandées)` : ''}\n\n` +
       `═══════════════════════════════════\n` +
-      `👤 Client     : ${demande.nom}\n` +
-      `📞 Téléphone  : ${demande.tel}\n` +
-      `✉️  Email      : ${demande.mail}\n\n` +
-      `🎮 Activité   : ${demande.activiteLabel}\n` +
+      `👤 Client     : ${prenom} ${nom_val}\n` +
+      `📞 Téléphone  : ${tel}\n` +
+      `✉️  Email      : ${email}\n\n` +
+      `🎮 Activité   : ${activiteLabel}\n` +
       `📅 Date       : ${dateF}\n` +
-      `🕐 Créneau    : ${demande.time}\n` +
-      `👥 Joueurs    : ${demande.pers} personne(s)\n\n` +
-      `📝 Détails    : ${demande.comment}\n\n` +
+      `👥 Joueurs    : ${pers} personne(s)\n\n` +
       `───────────────────────────────────\n` +
-      (isAuto
-        ? `✅ Réservation confirmée automatiquement dans CalendIT.\n`
-        : `➡️ Rendez-vous dans CalendIT > Demandes pour valider ou refuser.\n`);
+      (list.length ? confirmedBlock + `\n` : (dropped.length ? '⚠️ Aucune session n\'a pu être confirmée automatiquement.\n' : '')) +
+      droppedBlock + `\n` +
+      `───────────────────────────────────\n` +
+      `📝 Détails    : ${comment}\n\n` +
+      (dropped.length
+        ? `➡️ Le client a été informé que ${dropped.length > 1 ? 'ces sessions ne sont' : 'cette session n\'est'} pas disponible(s). Contactez-le si besoin pour proposer une alternative.\n`
+        : (allAuto
+          ? `✅ Toutes les sessions ont été confirmées automatiquement dans CalendIT.\n`
+          : `➡️ Rendez-vous dans CalendIT > Demandes pour valider ou refuser.\n`));
+
+    if (list.length === 0 && dropped.length === 0) return; // rien à notifier
 
     await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
@@ -966,28 +1048,66 @@
         template_params: {
           to_email: 'contact@gamezone-montauban.com',
           message:  message,
-          ref:      demande.nom
+          ref:      `${prenom} ${nom_val}`.trim()
         }
       })
     });
   }
-  function showSuccess(result) {
-    const isAuto = result && result.autoValidated;
-    const reason = result && result.reason;
+  function showSuccess(results, droppedSessions) {
+    const list    = Array.isArray(results) ? results : [results];
+    const dropped = droppedSessions || [];
+    const totalRequested = list.length + dropped.length;
     const title   = document.getElementById('success-title');
     const sub     = document.getElementById('success-sub');
     const notice  = document.getElementById('success-notice');
     const form    = document.getElementById('resa-form');
 
-    if (isAuto) {
-      title.textContent  = '✅ Réservation confirmée !';
-      sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning.<br>Un email de confirmation avec tous les détails va vous être envoyé dans quelques instants.';
+    // ── Cas simple : une seule session demandée (comportement inchangé) ──
+    if (totalRequested === 1 && dropped.length === 0) {
+      const isAuto = list[0] && list[0].autoValidated;
+      if (isAuto) {
+        title.textContent  = '✅ Réservation confirmée !';
+        sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning.<br>Un email de confirmation avec tous les détails va vous être envoyé dans quelques instants.';
+        notice.style.display = 'none';
+      } else {
+        title.textContent  = '⏳ Demande reçue !';
+        sub.innerHTML      = 'Votre demande a bien été transmise à l\'équipe GameZone.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong>.';
+        notice.style.display = 'block';
+        notice.textContent = getWaitingMessage(list[0] && list[0].reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
+      }
+      form.style.display = 'none';
+      document.getElementById('form-success').style.display = 'block';
+      return;
+    }
+
+    // ── Sessions multiples ──
+    // Rappel de la règle : une session n'est confirmée automatiquement que si
+    // TOUTES les places/règles sont respectées. Sinon, seules les sessions
+    // valides sont proposées/confirmées ; les autres sont clairement écartées.
+    if (dropped.length === 0) {
+      // Toutes les sessions demandées ont pu être confirmées
+      title.textContent = '✅ Sessions confirmées !';
+      const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ✅ confirmée`).join('<br>');
+      sub.innerHTML = `${lines}<br><br>Toutes vos sessions sont <strong>confirmées</strong> et enregistrées dans notre planning. Un email récapitulatif va vous être envoyé.`;
       notice.style.display = 'none';
-    } else {
-      title.textContent  = '⏳ Demande reçue !';
-      sub.innerHTML      = 'Votre demande a bien été transmise à l\'équipe GameZone.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong>.';
+    } else if (list.length === 0) {
+      // Aucune session n'a pu être confirmée
+      title.textContent = '⚠️ Aucune session disponible';
+      const lines = dropped.map((c, i) => `Session ${i + 1} (${c.time}) : ❌ non disponible`).join('<br>');
+      sub.innerHTML = `${lines}<br><br>Aucune des sessions demandées ne peut être confirmée pour le moment (places ou règles non respectées). Merci de nous contacter ou de réessayer avec d'autres horaires.`;
       notice.style.display = 'block';
-      notice.textContent = getWaitingMessage(reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
+      notice.textContent = getWaitingMessage(dropped[0] && dropped[0].reason, '') + ' Aucune réservation n\'a été enregistrée — vous pouvez modifier vos créneaux et renvoyer votre demande.';
+    } else {
+      // Confirmation partielle : seules les sessions valides sont retenues
+      title.textContent = '✅ Sessions disponibles confirmées';
+      const confirmedLines = list.map(r => `Session (${r.demande.time}) : ✅ confirmée`).join('<br>');
+      const droppedLines   = dropped.map(c => `Session (${c.time}) : ❌ non disponible`).join('<br>');
+      sub.innerHTML =
+        `${confirmedLines}<br>${droppedLines}<br><br>` +
+        `Seules les sessions disponibles ont été <strong>confirmées et enregistrées</strong> dans notre planning — un email récapitulatif va vous être envoyé.<br>` +
+        `Les sessions non disponibles n'ont <strong>pas</strong> été réservées : contactez-nous si vous souhaitez une solution alternative pour ces horaires.`;
+      notice.style.display = 'block';
+      notice.textContent = getWaitingMessage(dropped[0] && dropped[0].reason, '') + ' Ces sessions n\'ont pas été retenues automatiquement.';
     }
 
     form.style.display = 'none';
@@ -1207,6 +1327,17 @@
     const creneau = document.getElementById('creneau').value;
     if (!creneau) { showError('creneau', true); valid = false; } else showError('creneau', false);
 
+    // Créneaux sessions multiples (Laser Game / VR Zone)
+    const nbSessions = parseInt(document.getElementById('nb-sessions').value) || 1;
+    if (nbSessions >= 2) {
+      const creneau2 = document.getElementById('creneau2').value;
+      if (!creneau2) { showError('creneau2', true); valid = false; } else showError('creneau2', false);
+    }
+    if (nbSessions >= 3) {
+      const creneau3 = document.getElementById('creneau3').value;
+      if (!creneau3) { showError('creneau3', true); valid = false; } else showError('creneau3', false);
+    }
+
     // Champs anniversaire
     if (isAnnivActive()) {
       const ap = document.getElementById('anniv-prenom').value.trim();
@@ -1251,27 +1382,62 @@
 
     const fd = new FormData(form);
 
+    // ── Créneaux à traiter (1 à 3 sessions) ──
+    const nbSessions = parseInt(fd.get('nb_sessions')) || 1;
+    const sessionCreneaux = [fd.get('creneau')];
+    if (nbSessions >= 2) sessionCreneaux.push(fd.get('creneau2'));
+    if (nbSessions >= 3) sessionCreneaux.push(fd.get('creneau3'));
+
+    // ── Sessions multiples : on vérifie TOUT avant de confirmer quoi que ce soit ──
+    // Si une session ne respecte pas les règles/places, elle est écartée et
+    // seules les sessions valides sont réellement soumises/confirmées.
+    let creneauxToSubmit = sessionCreneaux;
+    let droppedSessions = [];
+    if (sessionCreneaux.length > 1) {
+      let checks = [];
+      try {
+        for (const cr of sessionCreneaux) {
+          checks.push(await checkSessionAvailability(fd, cr));
+        }
+      } catch(e) {
+        console.warn('Pré-vérification sessions:', e);
+      }
+      if (checks.length === sessionCreneaux.length) {
+        const invalid = checks.filter(c => !c.auto);
+        if (invalid.length > 0) {
+          creneauxToSubmit = checks.filter(c => c.auto).map(c => c.creneau);
+          droppedSessions  = invalid;
+        }
+      }
+    }
+
     // ── Si fichier local (test) → affichage direct des données ──
     if (window.location.protocol === 'file:') {
-      let result = null;
+      let results = [];
       try {
-        result = await pushToCalendit(fd);
-        await sendStaffEmail(fd, result);
-        console.log('✓ CalendIT + mail staff OK. Auto:', result.autoValidated);
+        for (const cr of creneauxToSubmit) {
+          results.push(await pushToCalendit(fd, cr));
+        }
+        await sendStaffEmail(fd, results, droppedSessions);
+        console.log('✓ CalendIT + mail staff OK. Sessions:', results.map(r => r.autoValidated));
       } catch(e) { console.warn('Firebase/EmailJS local:', e); }
-      showLocalSummary(fd, result);
+      showLocalSummary(fd, results);
       return;
     }
 
     // ── En production : Firebase + EmailJS + Formsubmit ──
-    let pushResult = null;
+    let pushResults = [];
     try {
-      pushResult = await pushToCalendit(fd);
-      await sendStaffEmail(fd, pushResult);
+      for (const cr of creneauxToSubmit) {
+        pushResults.push(await pushToCalendit(fd, cr));
+      }
+      await sendStaffEmail(fd, pushResults, droppedSessions);
     } catch(e) { console.warn('Firebase/EmailJS:', e); }
 
+    const allAuto = pushResults.length > 0 && pushResults.every(r => r.autoValidated);
+
     // Formsubmit.co (copie mail backup)
-    fd.append('_subject', pushResult?.autoValidated
+    fd.append('_subject', allAuto
       ? '✅ Réservation confirmée — GameZone Montauban'
       : '⏳ Demande de réservation — GameZone Montauban');
     fd.append('_language', 'fr');
@@ -1287,7 +1453,7 @@
       await response.json();
     } catch {}
 
-    showSuccess(pushResult);
+    showSuccess(pushResults, droppedSessions);
     return;
   }
 
@@ -1380,6 +1546,7 @@
 
     // Recalculer les créneaux si une date est déjà choisie (ex: VR/Escape → samedi/dimanche)
     refreshCreneaux();
+    updateMultiSessionVisibility();
   }
 
   // ══════════════════════════════════════════════
@@ -1514,6 +1681,81 @@
   }
   const BT_SLOTS = buildBTSlots();
 
+  // ══════════════════════════════════════════════
+  //  SESSIONS MULTIPLES (Laser Game / VR Zone)
+  // ══════════════════════════════════════════════
+  let currentCreneaux = [];
+
+  // Nombre de créneaux à sauter entre 2 sessions d'un même client :
+  // Laser Game → vraie pause de repos, on saute un créneau (index +2).
+  // VR Zone → aucune pause requise, le créneau suivant convient (index +1).
+  function sessionGapSteps() {
+    return document.getElementById('activite').value === 'VR Zone (action, arcade, zombies…)' ? 1 : 2;
+  }
+
+  function resetMultiSessions() {
+    document.getElementById('nb-sessions').value = '1';
+    document.getElementById('session2-row').style.display = 'none';
+    document.getElementById('session3-row').style.display = 'none';
+    document.getElementById('creneau2').innerHTML = '<option value="" disabled selected>Choisir le créneau 1 d\'abord</option>';
+    document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
+  }
+
+  // Affiche ou masque le bloc multi-sessions selon l'activité choisie
+  // (seulement pertinent pour Laser Game et VR Zone)
+  function updateMultiSessionVisibility() {
+    const val = document.getElementById('activite').value;
+    const show = (val === 'Laser Game' || val === 'VR Zone (action, arcade, zombies…)');
+    document.getElementById('multi-session-block').style.display = show ? 'block' : 'none';
+    if (!show) resetMultiSessions();
+  }
+
+  // Remplit un <select> de créneau de session à partir de l'index minimum
+  // autorisé dans la liste currentCreneaux (respecte la règle de pause).
+  function populateSessionSelect(selectEl, minIndex, placeholderTxt) {
+    selectEl.innerHTML = '';
+    const options = currentCreneaux.slice(minIndex);
+    const ph = document.createElement('option');
+    ph.value = ''; ph.disabled = true; ph.selected = true;
+    ph.textContent = options.length ? placeholderTxt : '— Plus aucun créneau compatible ce jour —';
+    selectEl.appendChild(ph);
+    options.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h; opt.textContent = h;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function onNbSessionsChange() {
+    const n = parseInt(document.getElementById('nb-sessions').value) || 1;
+    document.getElementById('session2-row').style.display = n >= 2 ? '' : 'none';
+    document.getElementById('session3-row').style.display = n >= 3 ? '' : 'none';
+    if (n >= 2) onSession1Change();
+    else { document.getElementById('creneau2').value=''; document.getElementById('creneau3').value=''; }
+  }
+
+  // Quand le créneau de la session 1 change → recalcule les options de la session 2
+  function onSession1Change() {
+    const n = parseInt(document.getElementById('nb-sessions').value) || 1;
+    if (n < 2) return;
+    const val1 = document.getElementById('creneau').value;
+    const idx1 = currentCreneaux.indexOf(val1);
+    if (idx1 === -1) return;
+    populateSessionSelect(document.getElementById('creneau2'), idx1 + sessionGapSteps(), `Choisir un créneau… (session 2)`);
+    // Réinitialise en cascade la session 3
+    document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
+  }
+
+  // Quand le créneau de la session 2 change → recalcule les options de la session 3
+  function onSession2Change() {
+    const n = parseInt(document.getElementById('nb-sessions').value) || 1;
+    if (n < 3) return;
+    const val2 = document.getElementById('creneau2').value;
+    const idx2 = currentCreneaux.indexOf(val2);
+    if (idx2 === -1) return;
+    populateSessionSelect(document.getElementById('creneau3'), idx2 + sessionGapSteps(), `Choisir un créneau… (session 3)`);
+  }
+
   function getActiviteSlots(actKey, dateStr) {
     const isNew = dateStr >= NEW_SCHEDULE_DATE;
     if (actKey === 'bt') return BT_SLOTS;
@@ -1567,6 +1809,7 @@
       creneauSel.innerHTML = '';
       hintDate.textContent = '';
       hintCren.textContent = '';
+      resetMultiSessions();
 
       if (!val) {
         creneauSel.innerHTML = '<option value="" disabled selected>Choisir une date d\'abord</option>';
@@ -1599,6 +1842,7 @@
       const actKey = mapActiviteToCalendit(document.getElementById('activite').value || 'Laser Game');
 
       const creneaux = genCreneaux(info, minTimeOverride, actKey, val);
+      currentCreneaux = creneaux;
       const weekendNote = (isVrEscapeActivity() && isWeekend) ? ' · VR/Escape dès 14h' : '';
       const ph = document.createElement('option');
       ph.value = ''; ph.disabled = true; ph.selected = true;
