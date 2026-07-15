@@ -942,7 +942,7 @@
     return { ...ctx, auto: check.auto, reason: check.reason };
   }
 
-  async function pushToCalendit(fd, creneauOverride) {
+  async function pushToCalendit(fd, creneauOverride, groupInfo) {
     if (!db) throw new Error('Firebase non disponible');
     // Lecture directe DOM — évite les bugs FormData avec HTMLInputElement
     const prenom   = (document.getElementById('prenom')?.value   || '').trim();
@@ -974,6 +974,13 @@
       createdAt:     Date.now()
     };
     if (profil) demande.profil = profil;
+    // Lie cette session aux autres sessions de la même réservation multi-session,
+    // pour que le staff puisse les traiter ensemble (un seul email client).
+    if (groupInfo && groupInfo.groupId) {
+      demande.groupId    = groupInfo.groupId;
+      demande.groupIndex = groupInfo.index;
+      demande.groupTotal = groupInfo.total;
+    }
 
     const ref = await db.ref('demandes').push(demande);
     return { demande, autoValidated: check.auto, reason: check.reason, ref: ref.key };
@@ -1412,12 +1419,19 @@
       }
     }
 
+    // ── Identifiant de groupe partagé si plusieurs sessions sont réellement soumises ──
+    // Permet à CalendIT de les traiter ensemble et n'envoyer qu'un seul email client.
+    const groupId = creneauxToSubmit.length > 1
+      ? `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      : null;
+
     // ── Si fichier local (test) → affichage direct des données ──
     if (window.location.protocol === 'file:') {
       let results = [];
       try {
-        for (const cr of creneauxToSubmit) {
-          results.push(await pushToCalendit(fd, cr));
+        for (let i = 0; i < creneauxToSubmit.length; i++) {
+          const groupInfo = groupId ? { groupId, index: i, total: creneauxToSubmit.length } : null;
+          results.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo));
         }
         await sendStaffEmail(fd, results, droppedSessions);
         console.log('✓ CalendIT + mail staff OK. Sessions:', results.map(r => r.autoValidated));
@@ -1429,8 +1443,9 @@
     // ── En production : Firebase + EmailJS + Formsubmit ──
     let pushResults = [];
     try {
-      for (const cr of creneauxToSubmit) {
-        pushResults.push(await pushToCalendit(fd, cr));
+      for (let i = 0; i < creneauxToSubmit.length; i++) {
+        const groupInfo = groupId ? { groupId, index: i, total: creneauxToSubmit.length } : null;
+        pushResults.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo));
       }
       await sendStaffEmail(fd, pushResults, droppedSessions);
     } catch(e) { console.warn('Firebase/EmailJS:', e); }
@@ -1701,6 +1716,7 @@
     document.getElementById('session3-row').style.display = 'none';
     document.getElementById('creneau2').innerHTML = '<option value="" disabled selected>Choisir le créneau 1 d\'abord</option>';
     document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
+    document.getElementById('multi-session-hint').textContent = '';
   }
 
   // Affiche ou masque le bloc multi-sessions selon l'activité choisie
@@ -1709,11 +1725,13 @@
     const val = document.getElementById('activite').value;
     const show = (val === 'Laser Game' || val === 'VR Zone (action, arcade, zombies…)');
     document.getElementById('multi-session-block').style.display = show ? 'block' : 'none';
-    if (!show) resetMultiSessions();
+    if (!show) { resetMultiSessions(); return; }
+    updateMultiSessionHint();
+    onSession1Change(); // recalcule (auto pour Laser, options pour VR) si des créneaux sont déjà choisis
   }
 
   // Remplit un <select> de créneau de session à partir de l'index minimum
-  // autorisé dans la liste currentCreneaux (respecte la règle de pause).
+  // autorisé dans la liste currentCreneaux (choix manuel — utilisé pour VR Zone).
   function populateSessionSelect(selectEl, minIndex, placeholderTxt) {
     selectEl.innerHTML = '';
     const options = currentCreneaux.slice(minIndex);
@@ -1728,34 +1746,78 @@
     });
   }
 
+  // Bloque automatiquement LE créneau exact d'une session (Laser Game) :
+  // pas de choix client, le système réserve directement le bon horaire
+  // en respectant la pause requise.
+  function populateSessionSelectAuto(selectEl, exactIndex) {
+    selectEl.innerHTML = '';
+    const opt = document.createElement('option');
+    if (exactIndex >= 0 && exactIndex < currentCreneaux.length) {
+      const h = currentCreneaux[exactIndex];
+      opt.value = h;
+      opt.selected = true;
+      opt.textContent = `${h} (créneau automatique, pause respectée)`;
+    } else {
+      opt.value = '';
+      opt.disabled = true;
+      opt.selected = true;
+      opt.textContent = '— Plus aucun créneau disponible ce jour pour cette session —';
+    }
+    selectEl.appendChild(opt);
+  }
+
   function onNbSessionsChange() {
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     document.getElementById('session2-row').style.display = n >= 2 ? '' : 'none';
     document.getElementById('session3-row').style.display = n >= 3 ? '' : 'none';
+    updateMultiSessionHint();
     if (n >= 2) onSession1Change();
     else { document.getElementById('creneau2').value=''; document.getElementById('creneau3').value=''; }
   }
 
-  // Quand le créneau de la session 1 change → recalcule les options de la session 2
+  // Petit texte explicatif selon l'activité (bloqué auto pour Laser, libre pour VR)
+  function updateMultiSessionHint() {
+    const hint = document.getElementById('multi-session-hint');
+    const n = parseInt(document.getElementById('nb-sessions').value) || 1;
+    if (n < 2) { hint.textContent = ''; return; }
+    const isLaser = document.getElementById('activite').value === 'Laser Game';
+    hint.textContent = isLaser
+      ? 'Les créneaux suivants sont réservés automatiquement, avec une pause d\'un créneau entre chaque partie.'
+      : 'Choisissez librement les créneaux de vos sessions suivantes (aucune pause requise).';
+  }
+
+  // Quand le créneau de la session 1 change → recalcule la session 2
+  // (bloquée automatiquement pour Laser Game, choix libre pour VR Zone)
   function onSession1Change() {
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     if (n < 2) return;
     const val1 = document.getElementById('creneau').value;
     const idx1 = currentCreneaux.indexOf(val1);
     if (idx1 === -1) return;
-    populateSessionSelect(document.getElementById('creneau2'), idx1 + sessionGapSteps(), `Choisir un créneau… (session 2)`);
-    // Réinitialise en cascade la session 3
-    document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
+    const isLaser = document.getElementById('activite').value === 'Laser Game';
+    if (isLaser) {
+      populateSessionSelectAuto(document.getElementById('creneau2'), idx1 + sessionGapSteps());
+      if (n >= 3) onSession2Change(); // cascade automatique vers la session 3
+    } else {
+      populateSessionSelect(document.getElementById('creneau2'), idx1 + sessionGapSteps(), `Choisir un créneau… (session 2)`);
+      // Réinitialise en cascade la session 3
+      document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
+    }
   }
 
-  // Quand le créneau de la session 2 change → recalcule les options de la session 3
+  // Quand le créneau de la session 2 change → recalcule la session 3
   function onSession2Change() {
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     if (n < 3) return;
     const val2 = document.getElementById('creneau2').value;
     const idx2 = currentCreneaux.indexOf(val2);
     if (idx2 === -1) return;
-    populateSessionSelect(document.getElementById('creneau3'), idx2 + sessionGapSteps(), `Choisir un créneau… (session 3)`);
+    const isLaser = document.getElementById('activite').value === 'Laser Game';
+    if (isLaser) {
+      populateSessionSelectAuto(document.getElementById('creneau3'), idx2 + sessionGapSteps());
+    } else {
+      populateSessionSelect(document.getElementById('creneau3'), idx2 + sessionGapSteps(), `Choisir un créneau… (session 3)`);
+    }
   }
 
   // ══════════════════════════════════════════════
