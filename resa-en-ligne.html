@@ -466,6 +466,7 @@
             <option value="Escape Game VR">Escape Game VR</option>
             <option>Blind Test Musical</option>
           </select>
+          <span class="date-hint" id="activite-offer-hint" style="color:#ff8800;display:none;"></span>
           <span class="field-error" id="err-activite">Veuillez choisir une activité.</span>
         </div>
         <div class="form-group">
@@ -1547,6 +1548,7 @@
     // Recalculer les créneaux si une date est déjà choisie (ex: VR/Escape → samedi/dimanche)
     refreshCreneaux();
     updateMultiSessionVisibility();
+    updateActiviteOfferHint();
   }
 
   // ══════════════════════════════════════════════
@@ -1756,6 +1758,36 @@
     populateSessionSelect(document.getElementById('creneau3'), idx2 + sessionGapSteps(), `Choisir un créneau… (session 3)`);
   }
 
+  // ══════════════════════════════════════════════
+  //  OFFRES SPÉCIALES LASER GAME PAR JOUR
+  //  Mardi → All Play · Jeudi → Just Play · Vendredi → Four Play
+  // ══════════════════════════════════════════════
+  const LASER_DAY_OFFERS = {
+    2: '⚡ Ce jour-là, profitez de l\'offre <strong>All Play</strong> — 6,5€/partie (dès 17h) !',
+    4: '⚡ Ce jour-là, profitez de l\'offre <strong>Just Play</strong> — 17€ les 3 parties (dès 17h) !',
+    5: '⚡ Ce jour-là, profitez de l\'offre <strong>Four Play</strong> — 21€/pers., 4 parties, 4 pers. minimum (dès 17h) !',
+  };
+
+  function updateActiviteOfferHint() {
+    const hint = document.getElementById('activite-offer-hint');
+    const activiteVal = document.getElementById('activite').value;
+    const dateVal = document.getElementById('date').value;
+    if (activiteVal !== 'Laser Game' || !dateVal) {
+      hint.style.display = 'none';
+      hint.innerHTML = '';
+      return;
+    }
+    const [y, mo, d] = dateVal.split('-').map(Number);
+    const dow = new Date(y, mo - 1, d).getDay();
+    if (LASER_DAY_OFFERS[dow]) {
+      hint.innerHTML = LASER_DAY_OFFERS[dow];
+      hint.style.display = 'block';
+    } else {
+      hint.style.display = 'none';
+      hint.innerHTML = '';
+    }
+  }
+
   function getActiviteSlots(actKey, dateStr) {
     const isNew = dateStr >= NEW_SCHEDULE_DATE;
     if (actKey === 'bt') return BT_SLOTS;
@@ -1810,6 +1842,7 @@
       hintDate.textContent = '';
       hintCren.textContent = '';
       resetMultiSessions();
+      updateActiviteOfferHint();
 
       if (!val) {
         creneauSel.innerHTML = '<option value="" disabled selected>Choisir une date d\'abord</option>';
