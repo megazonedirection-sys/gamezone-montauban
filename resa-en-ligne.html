@@ -491,6 +491,7 @@
           </select>
           <span class="date-hint" id="creneau-hint" style="color:#ff8800;"></span>
           <span class="field-error" id="err-creneau">Veuillez choisir un créneau disponible.</span>
+          <span class="field-error" id="err-creneau-fermeture">⛔ Ce créneau dépasse l'heure de fermeture — réservation impossible. Merci de choisir un horaire plus tôt.</span>
         </div>
       </div>
 
@@ -806,7 +807,26 @@
   // ══════════════════════════════════════════════
   //  AUTO-VALIDATION — règles métier
   // ══════════════════════════════════════════════
-  const MAX_CAP = { laser: 24, vr: 4, bt: 24 };
+  const MAX_CAP = { laser: 24, vr: 4, bt: 12 };
+
+  // Durée standard d'une session par activité (en minutes) — sert à vérifier
+  // que la fin de la prestation ne dépasse pas l'heure de fermeture.
+  const SESSION_DURATION_MIN = {
+    'Laser Game': 20,
+    'VR Zone (action, arcade, zombies…)': 20,
+    'Escape Game VR': 60,
+    'Blind Test Musical': 30,
+    'Forfait Anniversaire': 150, // 2h00 ou 2h30 → on retient la durée la plus longue par sécurité
+    'EVG / EVJF': 80,            // 1h20 sur place
+  };
+
+  function addMinutesToTime(timeStr, minutes) {
+    const [h, m] = (timeStr || '0:0').split(':').map(Number);
+    let total = (h || 0) * 60 + (m || 0) + minutes;
+    total = ((total % 1440) + 1440) % 1440;
+    const hh = Math.floor(total / 60), mm = total % 60;
+    return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  }
 
   // Profil du groupe (à titre informatif pour le staff — n'influence plus
   // l'auto-validation, cf. règles de compatibilité ci-dessous)
@@ -835,9 +855,30 @@
     'Blind Test Musical'
   ];
 
+  // Vérifie que la fin de la prestation ne dépasse pas l'heure de fermeture
+  // du jour concerné. Purement calculatoire (pas d'accès Firebase) — utilisable
+  // dès la validation du formulaire, avant toute tentative de soumission.
+  function checkClosingTime(activiteLabel, date, time) {
+    const [y, mo, d] = date.split('-').map(Number);
+    const duration = SESSION_DURATION_MIN[activiteLabel] || 20;
+    const heureFin = addMinutesToTime(time, duration);
+    const infoJour = getInfoJour(new Date(y, mo - 1, d));
+    if (!infoJour.ouvert) return true; // autre vérification s'en charge (jour fermé)
+    const [fh, fm] = heureFin.split(':').map(Number);
+    const finMinutes  = fh * 60 + fm;
+    const fermMinutes = infoJour.fermeture * 60 + (infoJour.fermetureMin || 0);
+    return finMinutes <= fermMinutes;
+  }
+
   async function checkAutoValidation(activite, activiteLabel, date, time, pers, ageBreakdown) {
     // Si Firebase non disponible → validation manuelle
     if (!db) return { auto: false, reason: 'erreur_verification' };
+
+    // 0. La fin de la prestation ne doit JAMAIS dépasser l'heure de fermeture du
+    // jour concerné — s'applique à TOUTES les activités (y compris Anniversaire/EVG),
+    // en priorité sur toute autre règle. Refus définitif, pas de repli manuel.
+    if (!checkClosingTime(activiteLabel, date, time))
+      return { auto: false, reason: 'depasse_fermeture', impossible: true };
 
     // 1. Activité auto-validable ? (vérification sur le label original)
     if (!AUTO_LABELS.includes(activiteLabel))
@@ -868,23 +909,28 @@
         return { auto: false, reason: 'staff_prioritaire' };
     } catch(e) { console.warn('Lock check:', e); }
 
-    // 4. Capacité disponible sur ce créneau ?
-    // On lit le nœud public "dispo" (agrégat sans données personnelles),
-    // et non plus "bookings" (réservé au staff — coordonnées clients).
+    // 4. Capacité disponible sur ce créneau (et sur les créneaux suivants
+    // occupés par la même réservation — cas de l'Escape Game VR qui bloque
+    // 3 créneaux d'affilée pour une seule séance de 60 min).
     const max = MAX_CAP[activite] || 24;
+    const nbCreneauxOccupes = (activiteLabel === 'Escape Game VR') ? 3 : 1;
     let usedPers = 0;
-    const dispoKey = `${activite}|${date}|${time}`;
     try {
-      const dispoSnap = await db.ref(`dispo/${dispoKey}`).once('value');
-      usedPers = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
-
-      // Pour BT : 1 seule réservation par créneau (toute présence = complet)
       if (activite === 'bt') {
+        // Pour BT : 1 seule réservation par créneau (toute présence = complet)
+        const dispoSnap = await db.ref(`dispo/${activite}|${date}|${time}`).once('value');
+        usedPers = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
         if (usedPers > 0) return { auto: false, reason: 'creneau_complet', available: 0 };
       } else {
-        // Laser et VR : somme des pers existants
-        if (usedPers + pers > max)
-          return { auto: false, reason: 'capacite_insuffisante', available: max - usedPers };
+        // Laser et VR (dont Escape) : vérifier la capacité sur chaque créneau occupé
+        for (let i = 0; i < nbCreneauxOccupes; i++) {
+          const t = i === 0 ? time : addMinutesToTime(time, i * 20);
+          const dispoSnap = await db.ref(`dispo/${activite}|${date}|${t}`).once('value');
+          const used = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
+          if (i === 0) usedPers = used;
+          if (used + pers > max)
+            return { auto: false, reason: 'capacite_insuffisante', available: max - used };
+        }
       }
     } catch(e) {
       console.warn('Capacity check:', e);
@@ -900,6 +946,7 @@
       activite_manuelle:     '📋 Votre demande nécessite une validation personnalisée par notre équipe.',
       enfants_sans_adulte:   '👶 Une réservation avec des enfants nécessite au moins un adulte du groupe — un agent va valider votre demande.',
       trop_proche:           '⏰ Réservation trop proche du créneau — un agent va confirmer rapidement.',
+      depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       staff_prioritaire:     '👤 Notre équipe est actuellement sur ce créneau. Votre demande est prioritaire.',
       capacite_insuffisante: '🎯 Le créneau est presque complet. Confirmation dès vérification des disponibilités.',
       creneau_complet:       '🎵 Ce créneau Blind Test est complet. Nous vous proposons une alternative.',
@@ -956,6 +1003,12 @@
     // ── Vérification auto-validation ──
     const check = await checkAutoValidation(actKey, activite, date, time, pers, ageBreakdown);
 
+    // Cas "impossible" (ex: dépassement de l'heure de fermeture) : on ne crée
+    // AUCUNE demande, ni auto-confirmée ni en attente — juste un refus clair.
+    if (check.impossible) {
+      return { demande: null, autoValidated: false, reason: check.reason, impossible: true };
+    }
+
     const demande = {
       nom:           `${prenom} ${nom_val}`.trim(),
       mail:          email,
@@ -974,6 +1027,8 @@
       createdAt:     Date.now()
     };
     if (profil) demande.profil = profil;
+    // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
+    if (activite === 'Escape Game VR') demande.slotSpan = 3;
     // Lie cette session aux autres sessions de la même réservation multi-session,
     // pour que le staff puisse les traiter ensemble (un seul email client).
     if (groupInfo && groupInfo.groupId) {
@@ -1073,9 +1128,14 @@
     // ── Cas simple : une seule session demandée (comportement inchangé) ──
     if (totalRequested === 1 && dropped.length === 0) {
       const isAuto = list[0] && list[0].autoValidated;
+      const isImpossible = list[0] && list[0].impossible;
       if (isAuto) {
         title.textContent  = '✅ Réservation confirmée !';
         sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning.<br>Un email de confirmation avec tous les détails va vous être envoyé dans quelques instants.';
+        notice.style.display = 'none';
+      } else if (isImpossible) {
+        title.textContent  = '⛔ Réservation impossible';
+        sub.innerHTML      = 'Ce créneau dépasse l\'heure de fermeture. Aucune réservation n\'a été enregistrée — merci de choisir un horaire plus tôt ou de nous contacter directement.';
         notice.style.display = 'none';
       } else {
         title.textContent  = '⏳ Demande reçue !';
@@ -1335,7 +1395,7 @@
     const creneau = document.getElementById('creneau').value;
     if (!creneau) { showError('creneau', true); valid = false; } else showError('creneau', false);
 
-    // Créneaux sessions multiples (Laser Game / VR Zone)
+    // Créneaux sessions multiples (Laser Game / VR Zone / Blind Test Musical)
     const nbSessions = parseInt(document.getElementById('nb-sessions').value) || 1;
     if (nbSessions >= 2) {
       const creneau2 = document.getElementById('creneau2').value;
@@ -1344,6 +1404,25 @@
     if (nbSessions >= 3) {
       const creneau3 = document.getElementById('creneau3').value;
       if (!creneau3) { showError('creneau3', true); valid = false; } else showError('creneau3', false);
+    }
+
+    // Heure de fermeture : la fin de la DERNIÈRE session ne doit jamais la dépasser.
+    // Si c'est le cas, la réservation est purement et simplement impossible
+    // (pas de repli vers une validation manuelle).
+    const activiteVal = document.getElementById('activite').value;
+    const dateVal = document.getElementById('date').value;
+    if (creneau && dateVal) {
+      let lastTime = creneauToTime(creneau);
+      if (nbSessions >= 2 && document.getElementById('creneau2').value) lastTime = creneauToTime(document.getElementById('creneau2').value);
+      if (nbSessions >= 3 && document.getElementById('creneau3').value) lastTime = creneauToTime(document.getElementById('creneau3').value);
+      if (!checkClosingTime(activiteVal, dateVal, lastTime)) {
+        document.getElementById('err-creneau-fermeture').classList.add('visible');
+        valid = false;
+      } else {
+        document.getElementById('err-creneau-fermeture').classList.remove('visible');
+      }
+    } else {
+      document.getElementById('err-creneau-fermeture').classList.remove('visible');
     }
 
     // Champs anniversaire
@@ -1707,7 +1786,7 @@
   // Laser Game → vraie pause de repos, on saute un créneau (index +2).
   // VR Zone → aucune pause requise, le créneau suivant convient (index +1).
   function sessionGapSteps() {
-    return document.getElementById('activite').value === 'VR Zone (action, arcade, zombies…)' ? 1 : 2;
+    return document.getElementById('activite').value === 'Laser Game' ? 2 : 1;
   }
 
   function resetMultiSessions() {
@@ -1720,14 +1799,15 @@
   }
 
   // Affiche ou masque le bloc multi-sessions selon l'activité choisie
-  // (seulement pertinent pour Laser Game et VR Zone)
+  // (Laser Game, VR Zone, Blind Test Musical — pas Escape Game VR, qui
+  // occupe déjà automatiquement 3 créneaux d'affilée pour une seule séance)
   function updateMultiSessionVisibility() {
     const val = document.getElementById('activite').value;
-    const show = (val === 'Laser Game' || val === 'VR Zone (action, arcade, zombies…)');
+    const show = (val === 'Laser Game' || val === 'VR Zone (action, arcade, zombies…)' || val === 'Blind Test Musical');
     document.getElementById('multi-session-block').style.display = show ? 'block' : 'none';
     if (!show) { resetMultiSessions(); return; }
     updateMultiSessionHint();
-    onSession1Change(); // recalcule (auto pour Laser, options pour VR) si des créneaux sont déjà choisis
+    onSession1Change(); // recalcule le blocage automatique si des créneaux sont déjà choisis
   }
 
   // Remplit un <select> de créneau de session à partir de l'index minimum
@@ -1783,26 +1863,20 @@
     const isLaser = document.getElementById('activite').value === 'Laser Game';
     hint.textContent = isLaser
       ? 'Les créneaux suivants sont réservés automatiquement, avec une pause d\'un créneau entre chaque partie.'
-      : 'Choisissez librement les créneaux de vos sessions suivantes (aucune pause requise).';
+      : 'Les créneaux suivants sont réservés automatiquement, directement à la suite (aucune pause requise).';
   }
 
   // Quand le créneau de la session 1 change → recalcule la session 2
-  // (bloquée automatiquement pour Laser Game, choix libre pour VR Zone)
+  // (bloquée automatiquement pour toutes les activités : Laser Game
+  // laisse une pause, VR Zone / Blind Test s'enchaînent directement)
   function onSession1Change() {
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     if (n < 2) return;
     const val1 = document.getElementById('creneau').value;
     const idx1 = currentCreneaux.indexOf(val1);
     if (idx1 === -1) return;
-    const isLaser = document.getElementById('activite').value === 'Laser Game';
-    if (isLaser) {
-      populateSessionSelectAuto(document.getElementById('creneau2'), idx1 + sessionGapSteps());
-      if (n >= 3) onSession2Change(); // cascade automatique vers la session 3
-    } else {
-      populateSessionSelect(document.getElementById('creneau2'), idx1 + sessionGapSteps(), `Choisir un créneau… (session 2)`);
-      // Réinitialise en cascade la session 3
-      document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
-    }
+    populateSessionSelectAuto(document.getElementById('creneau2'), idx1 + sessionGapSteps());
+    if (n >= 3) onSession2Change(); // cascade automatique vers la session 3
   }
 
   // Quand le créneau de la session 2 change → recalcule la session 3
@@ -1812,12 +1886,7 @@
     const val2 = document.getElementById('creneau2').value;
     const idx2 = currentCreneaux.indexOf(val2);
     if (idx2 === -1) return;
-    const isLaser = document.getElementById('activite').value === 'Laser Game';
-    if (isLaser) {
-      populateSessionSelectAuto(document.getElementById('creneau3'), idx2 + sessionGapSteps());
-    } else {
-      populateSessionSelect(document.getElementById('creneau3'), idx2 + sessionGapSteps(), `Choisir un créneau… (session 3)`);
-    }
+    populateSessionSelectAuto(document.getElementById('creneau3'), idx2 + sessionGapSteps());
   }
 
   // ══════════════════════════════════════════════
@@ -1949,6 +2018,21 @@
         creneauSel.appendChild(opt);
       });
     });
+  })();
+
+  // Pré-sélection de l'activité via paramètre URL (ex: resa-en-ligne.html?activite=Laser%20Game)
+  // Utilisé par les boutons "Réserver" du site vitrine pour ouvrir directement
+  // la bonne activité, sans repasser par le choix dans la liste déroulante.
+  (function preselectActiviteFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const act = params.get('activite');
+    if (!act) return;
+    const sel = document.getElementById('activite');
+    const match = Array.from(sel.options).find(o => o.value === act);
+    if (match) {
+      sel.value = act;
+      onActiviteChange();
+    }
   })();
 </script>
 </body>
