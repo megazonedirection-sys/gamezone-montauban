@@ -1918,9 +1918,9 @@
           currentSlotRemaining = remaining;
           const maxLabel = document.getElementById('laser-max-label');
           if (maxLabel) maxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max.)`;
-          ['laser-enfants79','laser-enfants1012','laser-ados1315','laser-ados1618','laser-adultes'].forEach(id => {
-            document.getElementById(id).max = remaining;
-          });
+          // Note : on ne limite pas chaque champ individuellement (un champ seul n'a
+          // pas de raison d'être plafonné à `remaining`) — seul le TOTAL de la
+          // répartition est comparé à la place réellement disponible.
           onLaserChange(); // recalcule immédiatement la couleur/l'état du total avec la vraie limite
         } else {
           currentSlotRemaining = null;
@@ -2044,9 +2044,6 @@
       document.getElementById('creneau-dispo-hint').textContent = '';
       document.getElementById('laser-max-label').textContent = '/ 24 joueurs maximum';
       currentSlotRemaining = null;
-      ['laser-enfants79','laser-enfants1012','laser-ados1315','laser-ados1618','laser-adultes'].forEach(id => {
-        document.getElementById(id).max = 24;
-      });
       resetMultiSessions();
       updateActiviteOfferHint();
 
