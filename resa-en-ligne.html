@@ -486,10 +486,11 @@
         </div>
         <div class="form-group">
           <label for="creneau">Créneau horaire *</label>
-          <select id="creneau" name="creneau" onchange="onSession1Change()">
+          <select id="creneau" name="creneau" onchange="onCreneauChange()">
             <option value="" disabled selected>Choisir une date d'abord</option>
           </select>
           <span class="date-hint" id="creneau-hint" style="color:#ff8800;"></span>
+          <span class="date-hint" id="creneau-dispo-hint" style="font-weight:700;"></span>
           <span class="field-error" id="err-creneau">Veuillez choisir un créneau disponible.</span>
           <span class="field-error" id="err-creneau-fermeture">⛔ Ce créneau dépasse l'heure de fermeture — réservation impossible. Merci de choisir un horaire plus tôt.</span>
         </div>
@@ -610,7 +611,7 @@
         <div id="laser-total-bar" style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(68,255,136,0.06);border:1px solid rgba(68,255,136,0.15);margin-top:0.25rem;">
           <span style="font-family:'Orbitron',monospace;font-size:0.6rem;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;">Total</span>
           <span id="laser-total" style="font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;color:#44ff88;text-shadow:0 0 8px rgba(68,255,136,0.5);">0</span>
-          <span style="font-size:0.8rem;color:var(--text-muted);">/ 24 joueurs maximum</span>
+          <span style="font-size:0.8rem;color:var(--text-muted);" id="laser-max-label">/ 24 joueurs maximum</span>
         </div>
         <span class="field-error" id="err-laser-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser 24 joueurs. Veuillez réduire.</span>
         <span class="field-error" id="err-laser-min" style="margin-top:0.5rem;">Veuillez indiquer au moins 1 joueur au total.</span>
@@ -1869,6 +1870,61 @@
   // Quand le créneau de la session 1 change → recalcule la session 2
   // (bloquée automatiquement pour toutes les activités : Laser Game
   // laisse une pause, VR Zone / Blind Test s'enchaînent directement)
+  // Affiche les places réellement disponibles sur le créneau choisi (lecture du
+  // nœud public "dispo", sans données personnelles), pour que le client voie
+  // tout de suite s'il y a la place pour son groupe avant de réserver.
+  async function refreshCreneauDispo() {
+    const hint = document.getElementById('creneau-dispo-hint');
+    const activiteVal = document.getElementById('activite').value;
+    const dateVal = document.getElementById('date').value;
+    const creneauVal = document.getElementById('creneau').value;
+    if (!hint) return;
+    if (!activiteVal || !dateVal || !creneauVal || !db) { hint.textContent = ''; return; }
+
+    const actKey = mapActiviteToCalendit(activiteVal);
+    const time = creneauToTime(creneauVal);
+    hint.style.color = 'var(--text-muted)';
+    hint.textContent = '⏳ Vérification des places disponibles…';
+    try {
+      const snap = await db.ref(`dispo/${actKey}|${dateVal}|${time}`).once('value');
+      const used = snap.exists() ? (snap.val() || 0) : 0;
+
+      if (actKey === 'bt') {
+        if (used > 0) {
+          hint.textContent = '🔴 Ce créneau Blind Test est déjà complet.';
+          hint.style.color = '#ff4444';
+        } else {
+          hint.textContent = '🟢 Créneau disponible.';
+          hint.style.color = '#44ff88';
+        }
+      } else {
+        const max = MAX_CAP[actKey] || 24;
+        const remaining = Math.max(0, max - used);
+        if (remaining === 0) {
+          hint.textContent = '🔴 Ce créneau est complet.';
+          hint.style.color = '#ff4444';
+        } else {
+          hint.textContent = `🟢 ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} sur ce créneau.`;
+          hint.style.color = remaining <= 4 ? '#ff8800' : '#44ff88';
+        }
+        // Met aussi à jour le repère "/ X maximum" affiché sous la répartition Laser
+        const maxLabel = document.getElementById('laser-max-label');
+        if (maxLabel && actKey === 'laser') {
+          maxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max.)`;
+        }
+      }
+    } catch(e) {
+      hint.textContent = '';
+      console.warn('Vérification dispo créneau:', e);
+    }
+  }
+
+  // Appelé au changement de créneau : cascade multi-sessions + vérification dispo
+  function onCreneauChange() {
+    onSession1Change();
+    refreshCreneauDispo();
+  }
+
   function onSession1Change() {
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     if (n < 2) return;
@@ -1972,6 +2028,8 @@
       creneauSel.innerHTML = '';
       hintDate.textContent = '';
       hintCren.textContent = '';
+      document.getElementById('creneau-dispo-hint').textContent = '';
+      document.getElementById('laser-max-label').textContent = '/ 24 joueurs maximum';
       resetMultiSessions();
       updateActiviteOfferHint();
 
