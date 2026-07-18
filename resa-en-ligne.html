@@ -1240,11 +1240,12 @@
     const ad16 = parseInt(document.getElementById('laser-ados1618').value)    || 0;
     const a    = parseInt(document.getElementById('laser-adultes').value)     || 0;
     const total = e79 + e1012 + ad13 + ad16 + a;
+    const effectiveMax = currentSlotRemaining !== null ? currentSlotRemaining : 24;
 
     const totalEl = document.getElementById('laser-total');
     totalEl.textContent = total;
-    totalEl.style.color = total > 24 ? '#ff4444' : '#44ff88';
-    totalEl.style.textShadow = total > 24
+    totalEl.style.color = total > effectiveMax ? '#ff4444' : '#44ff88';
+    totalEl.style.textShadow = total > effectiveMax
       ? '0 0 8px rgba(255,0,0,0.5)'
       : '0 0 8px rgba(68,255,136,0.5)';
 
@@ -1378,11 +1379,14 @@
       const ad16  = parseInt(document.getElementById('laser-ados1618').value)    || 0;
       const a     = parseInt(document.getElementById('laser-adultes').value)     || 0;
       const total = e79 + e1012 + ad13 + ad16 + a;
+      const effectiveMax = currentSlotRemaining !== null ? currentSlotRemaining : 24;
       if (total < 1) {
         document.getElementById('err-laser-min').classList.add('visible');
         valid = false;
-      } else if (total > 24) {
-        document.getElementById('err-laser-total').classList.add('visible');
+      } else if (total > effectiveMax) {
+        const errEl = document.getElementById('err-laser-total');
+        errEl.textContent = `Il ne reste que ${effectiveMax} place${effectiveMax > 1 ? 's' : ''} sur ce créneau — veuillez réduire le nombre de joueurs ou choisir un autre horaire.`;
+        errEl.classList.add('visible');
         valid = false;
       }
     }
@@ -1782,6 +1786,7 @@
   //  SESSIONS MULTIPLES (Laser Game / VR Zone)
   // ══════════════════════════════════════════════
   let currentCreneaux = [];
+  let currentSlotRemaining = null; // capacité réellement restante sur le créneau choisi (maj par refreshCreneauDispo)
 
   // Nombre de créneaux à sauter entre 2 sessions d'un même client :
   // Laser Game → vraie pause de repos, on saute un créneau (index +2).
@@ -1908,9 +1913,17 @@
           hint.style.color = remaining <= 4 ? '#ff8800' : '#44ff88';
         }
         // Met aussi à jour le repère "/ X maximum" affiché sous la répartition Laser
-        const maxLabel = document.getElementById('laser-max-label');
-        if (maxLabel && actKey === 'laser') {
-          maxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max.)`;
+        // et la limite réelle utilisée par la validation/l'alerte de couleur.
+        if (actKey === 'laser') {
+          currentSlotRemaining = remaining;
+          const maxLabel = document.getElementById('laser-max-label');
+          if (maxLabel) maxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max.)`;
+          ['laser-enfants79','laser-enfants1012','laser-ados1315','laser-ados1618','laser-adultes'].forEach(id => {
+            document.getElementById(id).max = remaining;
+          });
+          onLaserChange(); // recalcule immédiatement la couleur/l'état du total avec la vraie limite
+        } else {
+          currentSlotRemaining = null;
         }
       }
     } catch(e) {
@@ -2030,6 +2043,10 @@
       hintCren.textContent = '';
       document.getElementById('creneau-dispo-hint').textContent = '';
       document.getElementById('laser-max-label').textContent = '/ 24 joueurs maximum';
+      currentSlotRemaining = null;
+      ['laser-enfants79','laser-enfants1012','laser-ados1315','laser-ados1618','laser-adultes'].forEach(id => {
+        document.getElementById(id).max = 24;
+      });
       resetMultiSessions();
       updateActiviteOfferHint();
 
