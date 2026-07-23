@@ -584,27 +584,27 @@
         <div class="form-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:0.75rem;">
           <div class="form-group">
             <label for="laser-enfants79">Enf. 7-9 *</label>
-            <input type="number" id="laser-enfants79" name="laser_enfants79" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange()">
+            <input type="number" id="laser-enfants79" name="laser_enfants79" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange(this)">
             <span class="field-error" id="err-laser-enfants79">Champ obligatoire.</span>
           </div>
           <div class="form-group">
             <label for="laser-enfants1012">Enf. 10-12 *</label>
-            <input type="number" id="laser-enfants1012" name="laser_enfants1012" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange()">
+            <input type="number" id="laser-enfants1012" name="laser_enfants1012" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange(this)">
             <span class="field-error" id="err-laser-enfants1012">Champ obligatoire.</span>
           </div>
           <div class="form-group">
             <label for="laser-ados1315">Ados 13-15 *</label>
-            <input type="number" id="laser-ados1315" name="laser_ados1315" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange()">
+            <input type="number" id="laser-ados1315" name="laser_ados1315" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange(this)">
             <span class="field-error" id="err-laser-ados1315">Champ obligatoire.</span>
           </div>
           <div class="form-group">
             <label for="laser-ados1618">Ados 16-18 *</label>
-            <input type="number" id="laser-ados1618" name="laser_ados1618" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange()">
+            <input type="number" id="laser-ados1618" name="laser_ados1618" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange(this)">
             <span class="field-error" id="err-laser-ados1618">Champ obligatoire.</span>
           </div>
           <div class="form-group">
             <label for="laser-adultes">Adultes *</label>
-            <input type="number" id="laser-adultes" name="laser_adultes" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange()">
+            <input type="number" id="laser-adultes" name="laser_adultes" placeholder="0" min="0" max="24" value="0" oninput="onLaserChange(this)">
             <span class="field-error" id="err-laser-adultes">Champ obligatoire.</span>
           </div>
         </div>
@@ -623,15 +623,15 @@
         <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
           <div class="form-group">
             <label for="blind-adultes">Adultes *</label>
-            <input type="number" id="blind-adultes" name="blind_adultes" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange()">
+            <input type="number" id="blind-adultes" name="blind_adultes" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange(this)">
           </div>
           <div class="form-group">
             <label for="blind-ados">Ados 14+ *</label>
-            <input type="number" id="blind-ados" name="blind_ados" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange()">
+            <input type="number" id="blind-ados" name="blind_ados" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange(this)">
           </div>
           <div class="form-group">
             <label for="blind-enfants">Enf. 12+ *</label>
-            <input type="number" id="blind-enfants" name="blind_enfants" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange()">
+            <input type="number" id="blind-enfants" name="blind_enfants" placeholder="0" min="0" max="12" value="0" oninput="onBlindChange(this)">
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(255,45,107,0.06);border:1px solid rgba(255,45,107,0.15);margin-top:0.25rem;">
@@ -649,15 +649,15 @@
         <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
           <div class="form-group">
             <label for="vr-adultes">Adultes *</label>
-            <input type="number" id="vr-adultes" name="vr_adultes" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('vr')">
+            <input type="number" id="vr-adultes" name="vr_adultes" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('vr', this)">
           </div>
           <div class="form-group">
             <label for="vr-ados">Ados 14+ *</label>
-            <input type="number" id="vr-ados" name="vr_ados" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('vr')">
+            <input type="number" id="vr-ados" name="vr_ados" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('vr', this)">
           </div>
           <div class="form-group">
             <label for="vr-enfants">Enf. 10+ *</label>
-            <input type="number" id="vr-enfants" name="vr_enfants" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('vr')">
+            <input type="number" id="vr-enfants" name="vr_enfants" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('vr', this)">
           </div>
         </div>
         <div id="vr-total-bar" style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(255,124,0,0.06);border:1px solid rgba(255,124,0,0.15);margin-top:0.25rem;">
@@ -675,15 +675,15 @@
         <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
           <div class="form-group">
             <label for="escape-adultes">Adultes *</label>
-            <input type="number" id="escape-adultes" name="escape_adultes" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('escape')">
+            <input type="number" id="escape-adultes" name="escape_adultes" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('escape', this)">
           </div>
           <div class="form-group">
             <label for="escape-ados">Ados 14+ *</label>
-            <input type="number" id="escape-ados" name="escape_ados" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('escape')">
+            <input type="number" id="escape-ados" name="escape_ados" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('escape', this)">
           </div>
           <div class="form-group">
             <label for="escape-enfants">Enf. 12+ *</label>
-            <input type="number" id="escape-enfants" name="escape_enfants" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('escape')">
+            <input type="number" id="escape-enfants" name="escape_enfants" placeholder="0" min="0" max="4" value="0" oninput="onVrChange('escape', this)">
           </div>
         </div>
         <div id="escape-total-bar" style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(204,0,153,0.06);border:1px solid rgba(204,0,153,0.15);margin-top:0.25rem;">
@@ -1186,16 +1186,24 @@
   // ══════════════════════════════════════════════
   //  BLIND TEST — répartition joueurs
   // ══════════════════════════════════════════════
-  function onBlindChange() {
+  function onBlindChange(changedEl) {
     const a  = parseInt(document.getElementById('blind-adultes').value) || 0;
     const ad = parseInt(document.getElementById('blind-ados').value)    || 0;
     const e  = parseInt(document.getElementById('blind-enfants').value) || 0;
-    const total = a + ad + e;
+    let total = a + ad + e;
+    const effectiveMax = currentSlotRemaining !== null ? currentSlotRemaining : 12;
+
+    if (changedEl && total > effectiveMax) {
+      const currentVal = parseInt(changedEl.value) || 0;
+      const excedent = total - effectiveMax;
+      changedEl.value = Math.max(0, currentVal - excedent);
+      return onBlindChange();
+    }
 
     const totalEl = document.getElementById('blind-total');
     totalEl.textContent = total;
-    totalEl.style.color      = total > 12 ? '#ff4444' : 'var(--neon-pink)';
-    totalEl.style.textShadow = total > 12 ? '0 0 8px rgba(255,0,0,0.5)' : '0 0 8px rgba(255,45,107,0.5)';
+    totalEl.style.color      = total > effectiveMax ? '#ff4444' : 'var(--neon-pink)';
+    totalEl.style.textShadow = total > effectiveMax ? '0 0 8px rgba(255,0,0,0.5)' : '0 0 8px rgba(255,45,107,0.5)';
 
     document.getElementById('nb-personnes').value = total > 0 ? total : '';
     document.getElementById('err-blind-total').classList.remove('visible');
@@ -1205,12 +1213,19 @@
   // ══════════════════════════════════════════════
   //  VR ZONE & ESCAPE GAME — répartition joueurs
   // ══════════════════════════════════════════════
-  function onVrChange(prefix) {
+  function onVrChange(prefix, changedEl) {
     const a   = parseInt(document.getElementById(prefix+'-adultes').value)  || 0;
     const ad  = parseInt(document.getElementById(prefix+'-ados').value)     || 0;
     const e   = parseInt(document.getElementById(prefix+'-enfants').value)  || 0;
-    const total = a + ad + e;
-    const max = 4;
+    let total = a + ad + e;
+    const max = currentSlotRemaining !== null ? currentSlotRemaining : 4;
+
+    if (changedEl && total > max) {
+      const currentVal = parseInt(changedEl.value) || 0;
+      const excedent = total - max;
+      changedEl.value = Math.max(0, currentVal - excedent);
+      return onVrChange(prefix);
+    }
 
     const totalEl = document.getElementById(prefix+'-total');
     totalEl.textContent = total;
@@ -1233,14 +1248,24 @@
   // ══════════════════════════════════════════════
   //  LASER GAME — répartition joueurs
   // ══════════════════════════════════════════════
-  function onLaserChange() {
+  function onLaserChange(changedEl) {
     const e79  = parseInt(document.getElementById('laser-enfants79').value)   || 0;
     const e1012= parseInt(document.getElementById('laser-enfants1012').value) || 0;
     const ad13 = parseInt(document.getElementById('laser-ados1315').value)    || 0;
     const ad16 = parseInt(document.getElementById('laser-ados1618').value)    || 0;
     const a    = parseInt(document.getElementById('laser-adultes').value)     || 0;
-    const total = e79 + e1012 + ad13 + ad16 + a;
+    let total = e79 + e1012 + ad13 + ad16 + a;
     const effectiveMax = currentSlotRemaining !== null ? currentSlotRemaining : 24;
+
+    // Si la saisie dépasse la place réellement disponible, on corrige
+    // immédiatement le champ que la personne vient de modifier (pas de saisie
+    // possible au-delà de la limite, plutôt qu'un simple avertissement après coup).
+    if (changedEl && total > effectiveMax) {
+      const currentVal = parseInt(changedEl.value) || 0;
+      const excedent = total - effectiveMax;
+      changedEl.value = Math.max(0, currentVal - excedent);
+      return onLaserChange(); // recalcule proprement avec la valeur corrigée
+    }
 
     const totalEl = document.getElementById('laser-total');
     totalEl.textContent = total;
@@ -1347,8 +1372,13 @@
       const ad = parseInt(document.getElementById('blind-ados').value)    || 0;
       const e  = parseInt(document.getElementById('blind-enfants').value) || 0;
       const total = a + ad + e;
+      const effMax = currentSlotRemaining !== null ? currentSlotRemaining : 12;
       if (total < 4)  { document.getElementById('err-blind-min').classList.add('visible');   valid = false; }
-      else if (total > 12) { document.getElementById('err-blind-total').classList.add('visible'); valid = false; }
+      else if (total > effMax) {
+        const el = document.getElementById('err-blind-total');
+        el.textContent = `Il ne reste que ${effMax} place${effMax > 1 ? 's' : ''} sur ce créneau — veuillez choisir un autre horaire.`;
+        el.classList.add('visible'); valid = false;
+      }
     }
 
     // Champs VR Zone
@@ -1357,8 +1387,13 @@
       const ad = parseInt(document.getElementById('vr-ados').value) || 0;
       const e = parseInt(document.getElementById('vr-enfants').value) || 0;
       const total = a + ad + e;
+      const effMax = currentSlotRemaining !== null ? currentSlotRemaining : 4;
       if (total < 1) { document.getElementById('err-vr-min').classList.add('visible'); valid = false; }
-      else if (total > 4) { document.getElementById('err-vr-total').classList.add('visible'); valid = false; }
+      else if (total > effMax) {
+        const el = document.getElementById('err-vr-total');
+        el.textContent = `Il ne reste que ${effMax} place${effMax > 1 ? 's' : ''} sur ce créneau — veuillez réduire le nombre de joueurs ou choisir un autre horaire.`;
+        el.classList.add('visible'); valid = false;
+      }
     }
 
     // Champs Escape Game VR
@@ -1367,8 +1402,13 @@
       const ad = parseInt(document.getElementById('escape-ados').value) || 0;
       const e = parseInt(document.getElementById('escape-enfants').value) || 0;
       const total = a + ad + e;
+      const effMax = currentSlotRemaining !== null ? currentSlotRemaining : 4;
       if (total < 2) { document.getElementById('err-escape-min').classList.add('visible'); valid = false; }
-      else if (total > 4) { document.getElementById('err-escape-total').classList.add('visible'); valid = false; }
+      else if (total > effMax) {
+        const el = document.getElementById('err-escape-total');
+        el.textContent = `Il ne reste que ${effMax} place${effMax > 1 ? 's' : ''} sur ce créneau — veuillez réduire le nombre de joueurs ou choisir un autre horaire.`;
+        el.classList.add('visible'); valid = false;
+      }
     }
 
     // Champs Laser Game
@@ -1898,10 +1938,13 @@
         if (used > 0) {
           hint.textContent = '🔴 Ce créneau Blind Test est déjà complet.';
           hint.style.color = '#ff4444';
+          currentSlotRemaining = 0;
         } else {
           hint.textContent = '🟢 Créneau disponible.';
           hint.style.color = '#44ff88';
+          currentSlotRemaining = MAX_CAP.bt || 12;
         }
+        onBlindChange(); // recalcule avec la vraie limite
       } else {
         const max = MAX_CAP[actKey] || 24;
         const remaining = Math.max(0, max - used);
@@ -1912,22 +1955,24 @@
           hint.textContent = `🟢 ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} sur ce créneau.`;
           hint.style.color = remaining <= 4 ? '#ff8800' : '#44ff88';
         }
-        // Met aussi à jour le repère "/ X maximum" affiché sous la répartition Laser
-        // et la limite réelle utilisée par la validation/l'alerte de couleur.
+        currentSlotRemaining = remaining;
+
+        // Met aussi à jour le repère "/ X maximum" affiché sous la répartition Laser.
+        // Note : on ne limite pas chaque champ individuellement (un champ seul n'a
+        // pas de raison d'être plafonné à `remaining`) — seul le TOTAL de la
+        // répartition est comparé à la place réellement disponible.
         if (actKey === 'laser') {
-          currentSlotRemaining = remaining;
           const maxLabel = document.getElementById('laser-max-label');
           if (maxLabel) maxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max.)`;
-          // Note : on ne limite pas chaque champ individuellement (un champ seul n'a
-          // pas de raison d'être plafonné à `remaining`) — seul le TOTAL de la
-          // répartition est comparé à la place réellement disponible.
-          onLaserChange(); // recalcule immédiatement la couleur/l'état du total avec la vraie limite
-        } else {
-          currentSlotRemaining = null;
+          onLaserChange();
+        } else if (actKey === 'vr') {
+          onVrChange('vr');
+          onVrChange('escape');
         }
       }
     } catch(e) {
       hint.textContent = '';
+      currentSlotRemaining = null;
       console.warn('Vérification dispo créneau:', e);
     }
   }
