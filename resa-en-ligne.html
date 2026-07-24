@@ -875,6 +875,16 @@
     // Si Firebase non disponible → validation manuelle
     if (!db) return { auto: false, reason: 'erreur_verification' };
 
+    // -1. Le jour demandé doit être ouvert (congés annuels inclus) — refus
+    // définitif, aucune réservation possible sur ces dates, quelle que soit
+    // l'activité.
+    {
+      const [yy, mm, dd] = date.split('-').map(Number);
+      const infoJourCheck = getInfoJour(new Date(yy, mm - 1, dd));
+      if (!infoJourCheck.ouvert)
+        return { auto: false, reason: infoJourCheck.conge ? 'conges_annuels' : 'ferme_ce_jour', impossible: true };
+    }
+
     // 0. La fin de la prestation ne doit JAMAIS dépasser l'heure de fermeture du
     // jour concerné — s'applique à TOUTES les activités (y compris Anniversaire/EVG),
     // en priorité sur toute autre règle. Refus définitif, pas de repli manuel.
@@ -948,6 +958,8 @@
       enfants_sans_adulte:   '👶 Une réservation avec des enfants nécessite au moins un adulte du groupe — un agent va valider votre demande.',
       trop_proche:           '⏰ Réservation trop proche du créneau — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
+      conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
+      ferme_ce_jour:         '⛔ Nous sommes fermés ce jour-là — réservation impossible.',
       staff_prioritaire:     '👤 Notre équipe est actuellement sur ce créneau. Votre demande est prioritaire.',
       capacite_insuffisante: '🎯 Le créneau est presque complet. Confirmation dès vérification des disponibilités.',
       creneau_complet:       '🎵 Ce créneau Blind Test est complet. Nous vous proposons une alternative.',
@@ -1712,6 +1724,17 @@
   ];
   const ANNEE_MAX = 2027;
 
+  // Fermeture exceptionnelle (congés annuels) — aucune réservation possible
+  // sur ces dates, quelle que soit la période scolaire/vacances concernée.
+  const CONGES_ANNUELS = [
+    { debut: '2026-08-24', fin: '2026-09-11', label: 'Congés annuels' },
+  ];
+
+  function isCongeAnnuel(date) {
+    const t = date.getTime();
+    return CONGES_ANNUELS.some(c => t >= _d(c.debut).getTime() && t <= _d(c.fin).getTime());
+  }
+
   function _d(str) {
     const [y, m, d] = str.split('-').map(Number);
     return new Date(y, m - 1, d);
@@ -1734,6 +1757,7 @@
   }
 
   function getInfoJour(date) {
+    if (isCongeAnnuel(date)) return { ouvert: false, conge: true };
     const dow = date.getDay(); // 0=dim
     const periode = getPeriode(date);
 
@@ -2105,12 +2129,16 @@
         creneauSel.innerHTML = '<option value="" disabled selected>— Fermé ce jour —</option>';
         dateInput.setCustomValidity('Nous sommes fermés ce jour-là.');
         hintDate.style.color = '#ff4444';
-        const periode = getPeriode(dc);
-        let msg = '🚫 Fermé ce jour. ';
-        if (periode === 'normal')   msg += 'Ouvert mar→dim en période scolaire.';
-        if (periode === 'vacances') msg += 'Ouvert mar→dim pendant les vacances.';
-        if (periode === 'ete')      msg += 'Ouvert mar→dim en juillet/août.';
-        hintDate.textContent = msg;
+        if (info.conge) {
+          hintDate.textContent = '🚫 Fermé pour congés annuels (24/08 au 11/09/2026 inclus). Réouverture le 12/09/2026.';
+        } else {
+          const periode = getPeriode(dc);
+          let msg = '🚫 Fermé ce jour. ';
+          if (periode === 'normal')   msg += 'Ouvert mar→dim en période scolaire.';
+          if (periode === 'vacances') msg += 'Ouvert mar→dim pendant les vacances.';
+          if (periode === 'ete')      msg += 'Ouvert mar→dim en juillet/août.';
+          hintDate.textContent = msg;
+        }
         return;
       }
 
