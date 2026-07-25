@@ -383,6 +383,13 @@
       .form-wrap { padding: 1.5rem; }
       .contact-bar { gap: 1rem; }
     }
+  @keyframes blink-offer-anim {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  .blink-offer {
+    animation: blink-offer-anim 1s ease-in-out infinite;
+  }
   </style>
   <!-- Firebase SDK (compat v8 — même version que CalendIT) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -466,7 +473,7 @@
             <option value="Escape Game VR">Escape Game VR</option>
             <option>Blind Test Musical</option>
           </select>
-          <span class="date-hint" id="activite-offer-hint" style="color:#ff8800;display:none;"></span>
+          <span class="date-hint blink-offer" id="activite-offer-hint" style="color:#ff8800;display:none;font-size:1.05rem;font-weight:800;"></span>
           <span class="field-error" id="err-activite">Veuillez choisir une activité.</span>
         </div>
         <div class="form-group">
@@ -504,7 +511,8 @@
             <select id="nb-sessions" name="nb_sessions" onchange="onNbSessionsChange()">
               <option value="1" selected>1 session</option>
               <option value="2">2 sessions</option>
-              <option value="3">3 sessions</option>
+              <option value="3" id="nb-sessions-opt3">3 sessions</option>
+              <option value="4" id="nb-sessions-opt4" style="display:none;">Four Play</option>
             </select>
             <span class="date-hint" id="multi-session-hint" style="color:var(--neon-cyan);"></span>
           </div>
@@ -521,10 +529,19 @@
         <div class="form-row" id="session3-row" style="display:none;">
           <div class="form-group">
             <label for="creneau3">Créneau session 3 *</label>
-            <select id="creneau3" name="creneau3">
+            <select id="creneau3" name="creneau3" onchange="onSession3Change()">
               <option value="" disabled selected>Choisir le créneau 2 d'abord</option>
             </select>
             <span class="field-error" id="err-creneau3">Veuillez choisir un créneau disponible.</span>
+          </div>
+        </div>
+        <div class="form-row" id="session4-row" style="display:none;">
+          <div class="form-group">
+            <label for="creneau4">Créneau session 4 *</label>
+            <select id="creneau4" name="creneau4">
+              <option value="" disabled selected>Choisir le créneau 3 d'abord</option>
+            </select>
+            <span class="field-error" id="err-creneau4">Veuillez choisir un créneau disponible.</span>
           </div>
         </div>
       </div>
@@ -766,6 +783,18 @@
   function buildComment(fd) {
     const parts = [];
     const activite = fd.get('activite') || '';
+
+    // Offre du jour (Just Play / Four Play), pour une visibilité claire côté staff
+    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
+    if (activite === 'Laser Game' && nbSessionsForNote >= 3) {
+      const dateStr = fd.get('date') || '';
+      if (dateStr) {
+        const [dy, dmo, dd] = dateStr.split('-').map(Number);
+        const dow = new Date(dy, dmo - 1, dd).getDay();
+        if (nbSessionsForNote === 3 && dow === 4) parts.push('🎯 Offre Just Play');
+        if (nbSessionsForNote === 4 && dow === 5) parts.push('🎯 Offre Four Play');
+      }
+    }
 
     // Répartition joueurs
     const laserE79 = fd.get('laser_enfants79'), laserE1012 = fd.get('laser_enfants1012'), laserAd13 = fd.get('laser_ados1315'), laserAd16 = fd.get('laser_ados1618'), laserA = fd.get('laser_adultes');
@@ -1462,6 +1491,10 @@
       const creneau3 = document.getElementById('creneau3').value;
       if (!creneau3) { showError('creneau3', true); valid = false; } else showError('creneau3', false);
     }
+    if (nbSessions >= 4) {
+      const creneau4 = document.getElementById('creneau4').value;
+      if (!creneau4) { showError('creneau4', true); valid = false; } else showError('creneau4', false);
+    }
 
     // Heure de fermeture : la fin de la DERNIÈRE session ne doit jamais la dépasser.
     // Si c'est le cas, la réservation est purement et simplement impossible
@@ -1472,6 +1505,7 @@
       let lastTime = creneauToTime(creneau);
       if (nbSessions >= 2 && document.getElementById('creneau2').value) lastTime = creneauToTime(document.getElementById('creneau2').value);
       if (nbSessions >= 3 && document.getElementById('creneau3').value) lastTime = creneauToTime(document.getElementById('creneau3').value);
+      if (nbSessions >= 4 && document.getElementById('creneau4').value) lastTime = creneauToTime(document.getElementById('creneau4').value);
       if (!checkClosingTime(activiteVal, dateVal, lastTime)) {
         document.getElementById('err-creneau-fermeture').classList.add('visible');
         valid = false;
@@ -1526,11 +1560,12 @@
 
     const fd = new FormData(form);
 
-    // ── Créneaux à traiter (1 à 3 sessions) ──
+    // ── Créneaux à traiter (1 à 4 sessions) ──
     const nbSessions = parseInt(fd.get('nb_sessions')) || 1;
     const sessionCreneaux = [fd.get('creneau')];
     if (nbSessions >= 2) sessionCreneaux.push(fd.get('creneau2'));
     if (nbSessions >= 3) sessionCreneaux.push(fd.get('creneau3'));
+    if (nbSessions >= 4) sessionCreneaux.push(fd.get('creneau4'));
 
     // ── Sessions multiples : on vérifie TOUT avant de confirmer quoi que ce soit ──
     // Si une session ne respecte pas les règles/places, elle est écartée et
@@ -1863,8 +1898,10 @@
     document.getElementById('nb-sessions').value = '1';
     document.getElementById('session2-row').style.display = 'none';
     document.getElementById('session3-row').style.display = 'none';
+    document.getElementById('session4-row').style.display = 'none';
     document.getElementById('creneau2').innerHTML = '<option value="" disabled selected>Choisir le créneau 1 d\'abord</option>';
     document.getElementById('creneau3').innerHTML = '<option value="" disabled selected>Choisir le créneau 2 d\'abord</option>';
+    document.getElementById('creneau4').innerHTML = '<option value="" disabled selected>Choisir le créneau 3 d\'abord</option>';
     document.getElementById('multi-session-hint').textContent = '';
   }
 
@@ -1920,9 +1957,10 @@
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     document.getElementById('session2-row').style.display = n >= 2 ? '' : 'none';
     document.getElementById('session3-row').style.display = n >= 3 ? '' : 'none';
+    document.getElementById('session4-row').style.display = n >= 4 ? '' : 'none';
     updateMultiSessionHint();
     if (n >= 2) onSession1Change();
-    else { document.getElementById('creneau2').value=''; document.getElementById('creneau3').value=''; }
+    else { document.getElementById('creneau2').value=''; document.getElementById('creneau3').value=''; document.getElementById('creneau4').value=''; }
   }
 
   // Petit texte explicatif selon l'activité (bloqué auto pour Laser, libre pour VR)
@@ -2025,6 +2063,17 @@
     const idx2 = currentCreneaux.indexOf(val2);
     if (idx2 === -1) return;
     populateSessionSelectAuto(document.getElementById('creneau3'), idx2 + sessionGapSteps());
+    if (n >= 4) onSession3Change(); // cascade automatique vers la session 4 (Four Play)
+  }
+
+  // Quand le créneau de la session 3 change → recalcule la session 4 (Four Play)
+  function onSession3Change() {
+    const n = parseInt(document.getElementById('nb-sessions').value) || 1;
+    if (n < 4) return;
+    const val3 = document.getElementById('creneau3').value;
+    const idx3 = currentCreneaux.indexOf(val3);
+    if (idx3 === -1) return;
+    populateSessionSelectAuto(document.getElementById('creneau4'), idx3 + sessionGapSteps());
   }
 
   // ══════════════════════════════════════════════
@@ -2044,6 +2093,7 @@
     if (activiteVal !== 'Laser Game' || !dateVal) {
       hint.style.display = 'none';
       hint.innerHTML = '';
+      updateSessionOptionLabels(null);
       return;
     }
     const [y, mo, d] = dateVal.split('-').map(Number);
@@ -2054,6 +2104,28 @@
     } else {
       hint.style.display = 'none';
       hint.innerHTML = '';
+    }
+    updateSessionOptionLabels(dow);
+  }
+
+  // Adapte le menu "Nombre de sessions" selon le jour : Jeudi → "Just Play"
+  // (= 3 sessions) remplace "3 sessions", Vendredi → ajoute "Four Play"
+  // (= 4 sessions) sous "3 sessions".
+  function updateSessionOptionLabels(dow) {
+    const opt3 = document.getElementById('nb-sessions-opt3');
+    const opt4 = document.getElementById('nb-sessions-opt4');
+    if (!opt3 || !opt4) return;
+    opt3.textContent = (dow === 4) ? 'Just Play' : '3 sessions';
+    if (dow === 5) {
+      opt4.style.display = '';
+      opt4.textContent = 'Four Play';
+    } else {
+      opt4.style.display = 'none';
+      // Si "Four Play" était sélectionné et n'est plus proposé, on revient à 1 session
+      if (document.getElementById('nb-sessions').value === '4') {
+        document.getElementById('nb-sessions').value = '1';
+        onNbSessionsChange();
+      }
     }
   }
 
