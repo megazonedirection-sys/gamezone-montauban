@@ -779,22 +779,29 @@
     return creneau.replace('h', ':');
   }
 
+  // Détecte l'offre spéciale (Just Play / Four Play) applicable, si activité
+  // Laser Game + jour + nombre de sessions correspondent. Retourne null sinon.
+  function detectOfferLabel(fd) {
+    const activite = fd.get('activite') || '';
+    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
+    if (activite !== 'Laser Game' || nbSessionsForNote < 3) return null;
+    const dateStr = fd.get('date') || '';
+    if (!dateStr) return null;
+    const [dy, dmo, dd] = dateStr.split('-').map(Number);
+    const dow = new Date(dy, dmo - 1, dd).getDay();
+    if (nbSessionsForNote === 3 && dow === 4) return 'Just Play';
+    if (nbSessionsForNote === 4 && dow === 5) return 'Four Play';
+    return null;
+  }
+
   // Construire le commentaire complet
   function buildComment(fd) {
     const parts = [];
     const activite = fd.get('activite') || '';
 
     // Offre du jour (Just Play / Four Play), pour une visibilité claire côté staff
-    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
-    if (activite === 'Laser Game' && nbSessionsForNote >= 3) {
-      const dateStr = fd.get('date') || '';
-      if (dateStr) {
-        const [dy, dmo, dd] = dateStr.split('-').map(Number);
-        const dow = new Date(dy, dmo - 1, dd).getDay();
-        if (nbSessionsForNote === 3 && dow === 4) parts.push('🎯 Offre Just Play');
-        if (nbSessionsForNote === 4 && dow === 5) parts.push('🎯 Offre Four Play');
-      }
-    }
+    const offerLabelForComment = detectOfferLabel(fd);
+    if (offerLabelForComment) parts.push(`🎯 Offre ${offerLabelForComment}`);
 
     // Répartition joueurs
     const laserE79 = fd.get('laser_enfants79'), laserE1012 = fd.get('laser_enfants1012'), laserAd13 = fd.get('laser_ados1315'), laserAd16 = fd.get('laser_ados1618'), laserA = fd.get('laser_adultes');
@@ -1071,6 +1078,9 @@
     if (profil) demande.profil = profil;
     // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
     if (activite === 'Escape Game VR') demande.slotSpan = 3;
+    // Offre spéciale (Just Play / Four Play), pour affichage clair dans l'email client
+    const offerLabel = detectOfferLabel(fd);
+    if (offerLabel) demande.offerLabel = offerLabel;
     // Lie cette session aux autres sessions de la même réservation multi-session,
     // pour que le staff puisse les traiter ensemble (un seul email client).
     if (groupInfo && groupInfo.groupId) {
