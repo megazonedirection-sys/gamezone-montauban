@@ -779,29 +779,22 @@
     return creneau.replace('h', ':');
   }
 
-  // Détecte l'offre spéciale (Just Play / Four Play) applicable, si activité
-  // Laser Game + jour + nombre de sessions correspondent. Retourne null sinon.
-  function detectOfferLabel(fd) {
-    const activite = fd.get('activite') || '';
-    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
-    if (activite !== 'Laser Game' || nbSessionsForNote < 3) return null;
-    const dateStr = fd.get('date') || '';
-    if (!dateStr) return null;
-    const [dy, dmo, dd] = dateStr.split('-').map(Number);
-    const dow = new Date(dy, dmo - 1, dd).getDay();
-    if (nbSessionsForNote === 3 && dow === 4) return 'Just Play';
-    if (nbSessionsForNote === 4 && dow === 5) return 'Four Play';
-    return null;
-  }
-
   // Construire le commentaire complet
   function buildComment(fd) {
     const parts = [];
     const activite = fd.get('activite') || '';
 
     // Offre du jour (Just Play / Four Play), pour une visibilité claire côté staff
-    const offerLabelForComment = detectOfferLabel(fd);
-    if (offerLabelForComment) parts.push(`🎯 Offre ${offerLabelForComment}`);
+    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
+    if (activite === 'Laser Game' && nbSessionsForNote >= 3) {
+      const dateStr = fd.get('date') || '';
+      if (dateStr) {
+        const [dy, dmo, dd] = dateStr.split('-').map(Number);
+        const dow = new Date(dy, dmo - 1, dd).getDay();
+        if (nbSessionsForNote === 3 && dow === 4) parts.push('🎯 Offre Just Play');
+        if (nbSessionsForNote === 4 && dow === 5) parts.push('🎯 Offre Four Play');
+      }
+    }
 
     // Répartition joueurs
     const laserE79 = fd.get('laser_enfants79'), laserE1012 = fd.get('laser_enfants1012'), laserAd13 = fd.get('laser_ados1315'), laserAd16 = fd.get('laser_ados1618'), laserA = fd.get('laser_adultes');
@@ -956,24 +949,36 @@
         return { auto: false, reason: 'staff_prioritaire' };
     } catch(e) { console.warn('Lock check:', e); }
 
-    // 4. Capacité disponible sur ce créneau (et sur les créneaux suivants
-    // occupés par la même réservation — cas de l'Escape Game VR qui bloque
-    // 3 créneaux d'affilée pour une seule séance de 60 min).
+    // 4. Capacité disponible sur ce créneau
     const max = MAX_CAP[activite] || 24;
     const nbCreneauxOccupes = (activiteLabel === 'Escape Game VR') ? 3 : 1;
     let usedPers = 0;
     try {
+      // Lire directement les bookings (source de vérité)
+      const bSnap = await db.ref('bookings').once('value');
+      const allB = bSnap.val() || {};
+      const dSnap = await db.ref('demandes').once('value');
+      const allD = dSnap.val() || {};
+
+      const countUsed = (t) => {
+        let u = 0;
+        Object.entries(allB).forEach(([k,b]) => {
+          const p = k.split('|');
+          if(p[0]===activite && p[1]===date && p[2]===t) u += parseInt(b.pers)||0;
+        });
+        Object.values(allD).forEach(d => {
+          if(d.activite===activite && d.date===date && d.time===t && d.status==='pending') u += parseInt(d.pers)||0;
+        });
+        return u;
+      };
+
       if (activite === 'bt') {
-        // Pour BT : 1 seule réservation par créneau (toute présence = complet)
-        const dispoSnap = await db.ref(`dispo/${activite}|${date}|${time}`).once('value');
-        usedPers = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
+        usedPers = countUsed(time);
         if (usedPers > 0) return { auto: false, reason: 'creneau_complet', available: 0 };
       } else {
-        // Laser et VR (dont Escape) : vérifier la capacité sur chaque créneau occupé
         for (let i = 0; i < nbCreneauxOccupes; i++) {
           const t = i === 0 ? time : addMinutesToTime(time, i * 20);
-          const dispoSnap = await db.ref(`dispo/${activite}|${date}|${t}`).once('value');
-          const used = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
+          const used = countUsed(t);
           if (i === 0) usedPers = used;
           if (used + pers > max)
             return { auto: false, reason: 'capacite_insuffisante', available: max - used };
@@ -1078,9 +1083,6 @@
     if (profil) demande.profil = profil;
     // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
     if (activite === 'Escape Game VR') demande.slotSpan = 3;
-    // Offre spéciale (Just Play / Four Play), pour affichage clair dans l'email client
-    const offerLabel = detectOfferLabel(fd);
-    if (offerLabel) demande.offerLabel = offerLabel;
     // Lie cette session aux autres sessions de la même réservation multi-session,
     // pour que le staff puisse les traiter ensemble (un seul email client).
     if (groupInfo && groupInfo.groupId) {
@@ -1772,7 +1774,7 @@
   // Fermeture exceptionnelle (congés annuels) — aucune réservation possible
   // sur ces dates, quelle que soit la période scolaire/vacances concernée.
   const CONGES_ANNUELS = [
-    { debut: '2026-08-24', fin: '2026-09-08', label: 'Congés annuels' },
+    { debut: '2026-08-24', fin: '2026-09-11', label: 'Congés annuels' },
   ];
 
   function isCongeAnnuel(date) {
@@ -2003,8 +2005,24 @@
     hint.style.color = 'var(--text-muted)';
     hint.textContent = '⏳ Vérification des places disponibles…';
     try {
-      const snap = await db.ref(`dispo/${actKey}|${dateVal}|${time}`).once('value');
-      const used = snap.exists() ? (snap.val() || 0) : 0;
+      // Lire directement les bookings Firebase (source de vérité)
+      const snap = await db.ref('bookings').once('value');
+      const allBookings = snap.val() || {};
+      let used = 0;
+      Object.entries(allBookings).forEach(([k, b]) => {
+        const parts = k.split('|');
+        if(parts[0] === actKey && parts[1] === dateVal && parts[2] === time){
+          used += parseInt(b.pers) || 0;
+        }
+      });
+      // Ajouter aussi les demandes en attente
+      const snapD = await db.ref('demandes').once('value');
+      const allDemandes = snapD.val() || {};
+      Object.values(allDemandes).forEach(d => {
+        if(d.activite === actKey && d.date === dateVal && d.time === time && d.status === 'pending'){
+          used += parseInt(d.pers) || 0;
+        }
+      });
 
       if (actKey === 'bt') {
         if (used > 0) {
@@ -2212,7 +2230,7 @@
         dateInput.setCustomValidity('Nous sommes fermés ce jour-là.');
         hintDate.style.color = '#ff4444';
         if (info.conge) {
-          hintDate.textContent = '🚫 Fermé pour congés annuels (24/08 au 08/09/2026 inclus). Réouverture le 09/09/2026.';
+          hintDate.textContent = '🚫 Fermé pour congés annuels (24/08 au 11/09/2026 inclus). Réouverture le 12/09/2026.';
         } else {
           const periode = getPeriode(dc);
           let msg = '🚫 Fermé ce jour. ';
