@@ -1056,7 +1056,7 @@
     const prenom   = (document.getElementById('prenom')?.value   || '').trim();
     const nom_val  = (document.getElementById('nom')?.value      || '').trim();
     const email    = (document.getElementById('email')?.value    || '').trim();
-    const tel      = (document.getElementById('telephone')?.value || '').replace(/\s/g, '');
+    const tel      = getDigits(document.getElementById('telephone')?.value || '');
     const creneau  = creneauOverride || fd.get('creneau') || '';
     const ctx      = extractSessionContext(fd, creneau);
     const { activite, actKey, date, time, pers, ageBreakdown, profil } = ctx;
@@ -1102,6 +1102,19 @@
     }
 
     const ref = await db.ref('demandes').push(demande);
+
+    // Mise à jour optimiste IMMÉDIATE de dispo/dispo_profil (sans attendre que
+    // CalendIT traite la demande, ce qui peut prendre quelques secondes) —
+    // évite qu'une réservation soumise juste après ne voie une disponibilité
+    // ou une composition de groupe périmée. CalendIT recalculera de toute
+    // façon ces valeurs depuis les vraies réservations dès qu'il traitera
+    // la demande, donc aucun risque de dérive durable.
+    if (check.auto) {
+      const dispoKey = `${actKey}|${date}|${time}`;
+      db.ref(`dispo/${dispoKey}`).transaction(cur => (cur || 0) + pers).catch(()=>{});
+      if (profil) db.ref(`dispo_profil/${dispoKey}/${profil}`).set(true).catch(()=>{});
+    }
+
     return { demande, autoValidated: check.auto, reason: check.reason, ref: ref.key };
   }
 
@@ -1116,7 +1129,7 @@
     const prenom = (document.getElementById('prenom')?.value || '').trim();
     const nom_val= (document.getElementById('nom')?.value || '').trim();
     const email  = (document.getElementById('email')?.value || '').trim();
-    const tel    = (document.getElementById('telephone')?.value || '').replace(/\s/g, '');
+    const tel    = getDigits(document.getElementById('telephone')?.value || '');
     const activiteLabel = fd.get('activite') || '';
     const pers   = fd.get('nb_personnes') || '';
     const dateStr = fd.get('date') || '';
@@ -1354,7 +1367,14 @@
   // ══════════════════════════════════════════════
 
   function getDigits(str) {
-    return str.replace(/\D/g, '');
+    let d = (str || '').replace(/\D/g, '');
+    // Corrige l'autocomplétion du navigateur qui remplit parfois le numéro au
+    // format international (+33 6 XX XX XX XX → 33 + 9 chiffres) au lieu du
+    // format national à 10 chiffres attendu.
+    if (d.length === 11 && d.startsWith('33')) {
+      d = '0' + d.slice(2);
+    }
+    return d;
   }
 
   function showError(id, show) {
@@ -1414,9 +1434,21 @@
     const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     if (!emailOk) { showError('email', true); valid = false; } else showError('email', false);
 
-    // Téléphone — exactement 10 chiffres
+    // Téléphone — exactement 10 chiffres, jamais au format international mal
+    // converti par l'autocomplétion du navigateur (ex: "33XXXXXXXX")
     const tel = getDigits(document.getElementById('telephone').value);
-    if (tel.length !== 10) { showError('telephone', true); valid = false; } else showError('telephone', false);
+    const telErrEl = document.getElementById('err-telephone');
+    if (tel.length !== 10) {
+      showError('telephone', true);
+      telErrEl.textContent = 'Le numéro doit contenir exactement 10 chiffres.';
+      valid = false;
+    } else if (tel.startsWith('33')) {
+      showError('telephone', true);
+      telErrEl.textContent = 'Numéro invalide (format international détecté) — merci de le ressaisir en commençant par 0 (ex: 06 12 34 56 78).';
+      valid = false;
+    } else {
+      showError('telephone', false);
+    }
 
     // Activité
     const activite = document.getElementById('activite').value;
