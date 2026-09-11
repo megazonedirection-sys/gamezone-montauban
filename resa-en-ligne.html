@@ -876,6 +876,21 @@
     return 'intense';
   }
 
+  // Catégories de compatibilité pour le partage d'un créneau Laser Game :
+  // "enf79", "enf1012", "ado1315" sont chacune leur propre catégorie stricte ;
+  // "grand" regroupe Ados 16-18 ET Adultes, toujours compatibles entre eux.
+  // Un groupe peut appartenir à plusieurs catégories à la fois (ex: un adulte
+  // accompagnant des enfants 10-12 → ["enf1012","grand"]).
+  function computeCategories(enfants79, enfants1012, ados1315, ados1618, adultes) {
+    const cats = [];
+    if ((enfants79||0) > 0)   cats.push('enf79');
+    if ((enfants1012||0) > 0) cats.push('enf1012');
+    if ((ados1315||0) > 0)    cats.push('ado1315');
+    if ((ados1618||0) > 0 || (adultes||0) > 0) cats.push('grand');
+    if (cats.length === 0) cats.push('grand'); // pas de répartition connue → traité comme "grand" par défaut
+    return cats.sort();
+  }
+
   const PROFIL_LABEL = {
     famille79:   'Enfants 7-9 ans',
     famille1012: 'Enfants 10-12 ans',
@@ -931,24 +946,27 @@
     if (!AUTO_LABELS.includes(activiteLabel))
       return { auto: false, reason: 'activite_manuelle' };
 
-    // 1bis. Laser Game : compatibilité du profil de groupe avec ce qui est déjà
-    // présent sur le créneau. Un groupe avec au moins un adulte est toujours
-    // accepté, quel que soit le créneau. Un groupe SANS adulte (enfants ou ados
-    // seuls) n'est auto-accepté que si le créneau est vide, ou déjà occupé
-    // uniquement par le même profil (même tranche d'âge sans adulte) — sinon,
-    // validation manuelle obligatoire.
+    // 1bis. Laser Game : un nouveau groupe n'est auto-accepté sur un créneau
+    // que s'il partage un dénominateur commun (même tranche d'âge, ou "grand"
+    // = ados 16-18/adultes, toujours compatibles entre eux) avec CHACUNE des
+    // réservations déjà présentes sur ce créneau. Un créneau vide accepte
+    // toujours. Sinon (aucun dénominateur commun) → validation manuelle
+    // obligatoire, au même titre qu'un anniversaire/EVG.
     if (activite === 'laser' && ageBreakdown) {
-      const newProfil = computeGroupProfile(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes);
-      if (newProfil !== 'intense') {
-        try {
-          const profilSnap = await db.ref(`dispo_profil/${activite}|${date}|${time}`).once('value');
-          const profilsPresents = profilSnap.exists() ? Object.keys(profilSnap.val() || {}) : [];
-          const incompatible = profilsPresents.some(p => p !== newProfil);
+      const newCats = computeCategories(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes);
+      try {
+        const profilSnap = await db.ref(`dispo_profil/${activite}|${date}|${time}`).once('value');
+        if (profilSnap.exists()) {
+          const signatures = Object.keys(profilSnap.val() || {});
+          const incompatible = signatures.some(sig => {
+            const existingCats = sig.split('+');
+            return !existingCats.some(c => newCats.includes(c));
+          });
           if (incompatible) return { auto: false, reason: 'profil_incompatible_creneau' };
-        } catch(e) {
-          console.warn('Vérification profil créneau:', e);
-          return { auto: false, reason: 'erreur_verification' };
         }
+      } catch(e) {
+        console.warn('Vérification profil créneau:', e);
+        return { auto: false, reason: 'erreur_verification' };
       }
     }
 
@@ -1112,7 +1130,10 @@
     if (check.auto) {
       const dispoKey = `${actKey}|${date}|${time}`;
       db.ref(`dispo/${dispoKey}`).transaction(cur => (cur || 0) + pers).catch(()=>{});
-      if (profil) db.ref(`dispo_profil/${dispoKey}/${profil}`).set(true).catch(()=>{});
+      if (actKey === 'laser' && ageBreakdown) {
+        const sig = computeCategories(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes).join('+');
+        db.ref(`dispo_profil/${dispoKey}/${sig}`).set(true).catch(()=>{});
+      }
     }
 
     return { demande, autoValidated: check.auto, reason: check.reason, ref: ref.key };
