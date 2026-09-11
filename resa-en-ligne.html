@@ -931,13 +931,25 @@
     if (!AUTO_LABELS.includes(activiteLabel))
       return { auto: false, reason: 'activite_manuelle' };
 
-    // 1bis. Laser Game : des enfants (7-9 ou 10-12) sans aucun adulte dans le
-    // groupe → validation manuelle obligatoire, au même titre qu'un anniversaire/EVG.
-    // Tous les autres mélanges (ados/adultes) sont autorisés en auto-validation.
+    // 1bis. Laser Game : compatibilité du profil de groupe avec ce qui est déjà
+    // présent sur le créneau. Un groupe avec au moins un adulte est toujours
+    // accepté, quel que soit le créneau. Un groupe SANS adulte (enfants ou ados
+    // seuls) n'est auto-accepté que si le créneau est vide, ou déjà occupé
+    // uniquement par le même profil (même tranche d'âge sans adulte) — sinon,
+    // validation manuelle obligatoire.
     if (activite === 'laser' && ageBreakdown) {
-      const enfantsTotal = (ageBreakdown.enfants79 || 0) + (ageBreakdown.enfants1012 || 0);
-      if (enfantsTotal > 0 && (ageBreakdown.adultes || 0) === 0)
-        return { auto: false, reason: 'enfants_sans_adulte' };
+      const newProfil = computeGroupProfile(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes);
+      if (newProfil !== 'intense') {
+        try {
+          const profilSnap = await db.ref(`dispo_profil/${activite}|${date}|${time}`).once('value');
+          const profilsPresents = profilSnap.exists() ? Object.keys(profilSnap.val() || {}) : [];
+          const incompatible = profilsPresents.some(p => p !== newProfil);
+          if (incompatible) return { auto: false, reason: 'profil_incompatible_creneau' };
+        } catch(e) {
+          console.warn('Vérification profil créneau:', e);
+          return { auto: false, reason: 'erreur_verification' };
+        }
+      }
     }
 
     // 2. Délai minimum 40 minutes avant le créneau
@@ -991,7 +1003,7 @@
   function getWaitingMessage(reason, activite) {
     const msgs = {
       activite_manuelle:     '📋 Votre demande nécessite une validation personnalisée par notre équipe.',
-      enfants_sans_adulte:   '👶 Une réservation avec des enfants nécessite au moins un adulte du groupe — un agent va valider votre demande.',
+      profil_incompatible_creneau: '🧩 Ce créneau est déjà occupé par un groupe de composition différente — un agent va vérifier la meilleure organisation pour votre partie.',
       trop_proche:           '⏰ Réservation trop proche du créneau — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
@@ -1387,7 +1399,6 @@
   }
 
   function validateAndSubmit() {
-    console.log('[GZ] validateAndSubmit appelé');
     let valid = true;
 
     // Prénom
@@ -1615,7 +1626,6 @@
           results.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo));
         }
         await sendStaffEmail(fd, results, droppedSessions);
-        console.log('✓ CalendIT + mail staff OK. Sessions:', results.map(r => r.autoValidated));
       } catch(e) { console.warn('Firebase/EmailJS local:', e); }
       showLocalSummary(fd, results);
       return;
@@ -2091,7 +2101,7 @@
   //  Mardi → All Play · Jeudi → Just Play · Vendredi → Four Play
   // ══════════════════════════════════════════════
   const LASER_DAY_OFFERS = {
-    2: '⚡ Ce jour-là, profitez de l\'offre <strong>All Play</strong> — 6,5€/partie (dès 17h) !',
+    2: '⚡ Ce jour-là, profitez de l\'offre <strong>All Play</strong> — 7€/partie (dès 17h) !',
     4: '⚡ Ce jour-là, profitez de l\'offre <strong>Just Play</strong> — 17€ les 3 parties (dès 17h) !',
     5: '⚡ Ce jour-là, profitez de l\'offre <strong>Four Play</strong> — 21€/pers., 4 parties, 4 pers. minimum (dès 17h) !',
   };
