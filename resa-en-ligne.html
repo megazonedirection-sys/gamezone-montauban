@@ -1127,13 +1127,18 @@
     // ou une composition de groupe périmée. CalendIT recalculera de toute
     // façon ces valeurs depuis les vraies réservations dès qu'il traitera
     // la demande, donc aucun risque de dérive durable.
+    // IMPORTANT : on attend (await) que ces écritures soient réellement
+    // terminées avant de considérer la réservation comme traitée — sinon rien
+    // ne garantit qu'elles soient visibles avant qu'une réservation suivante
+    // (soumise dans la foulée) ne relise ces mêmes données.
     if (check.auto) {
       const dispoKey = `${actKey}|${date}|${time}`;
-      db.ref(`dispo/${dispoKey}`).transaction(cur => (cur || 0) + pers).catch(()=>{});
+      const writes = [db.ref(`dispo/${dispoKey}`).transaction(cur => (cur || 0) + pers).catch(()=>{})];
       if (actKey === 'laser' && ageBreakdown) {
         const sig = computeCategories(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes).join('+');
-        db.ref(`dispo_profil/${dispoKey}/${sig}`).set(true).catch(()=>{});
+        writes.push(db.ref(`dispo_profil/${dispoKey}/${sig}`).set(true).catch(()=>{}));
       }
+      await Promise.all(writes);
     }
 
     return { demande, autoValidated: check.auto, reason: check.reason, ref: ref.key };
