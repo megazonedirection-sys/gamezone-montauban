@@ -1106,6 +1106,16 @@
       createdAt:     Date.now()
     };
     if (profil) demande.profil = profil;
+    // Détail chiffré de la répartition (indispensable pour recalculer
+    // correctement les catégories de compatibilité une fois la réservation
+    // créée par CalendIT — le seul champ "profil" résumé ne suffit pas).
+    if (activite === 'laser' && ageBreakdown) {
+      demande.enfants79   = ageBreakdown.enfants79;
+      demande.enfants1012 = ageBreakdown.enfants1012;
+      demande.ados1315    = ageBreakdown.ados1315;
+      demande.ados1618    = ageBreakdown.ados1618;
+      demande.adultes     = ageBreakdown.adultes;
+    }
     // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
     if (activite === 'Escape Game VR') demande.slotSpan = 3;
     // Offre spéciale (Just Play / Four Play), pour affichage clair dans l'email client
