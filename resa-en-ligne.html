@@ -787,7 +787,13 @@
   }
 
   // Détecte l'offre spéciale (Just Play / Four Play) applicable, si activité
-  // Laser Game + jour + nombre de sessions correspondent. Retourne null sinon.
+  // Laser Game + jour + nombre de sessions correspondent. Durant les vacances
+  // scolaires (et l'été), le site ouvre plus tôt (dès 14h) : ces offres n'y
+  // sont proposées qu'à partir de la session de 17h20 — avant cet horaire,
+  // durant les vacances, le client réserve des sessions "classiques" au tarif
+  // normal, sans offre. Hors vacances, l'ouverture est déjà proche de 17h,
+  // donc aucune restriction d'horaire supplémentaire n'est nécessaire.
+  // Retourne null si aucune offre ne s'applique.
   function detectOfferLabel(fd) {
     const activite = fd.get('activite') || '';
     const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
@@ -795,7 +801,16 @@
     const dateStr = fd.get('date') || '';
     if (!dateStr) return null;
     const [dy, dmo, dd] = dateStr.split('-').map(Number);
-    const dow = new Date(dy, dmo - 1, dd).getDay();
+    const dateObj = new Date(dy, dmo - 1, dd);
+    const dow = dateObj.getDay();
+
+    const periode = getPeriode(dateObj);
+    if (periode === 'vacances' || periode === 'ete') {
+      const time = creneauToTime(fd.get('creneau') || '');
+      const [h, m] = time.split(':').map(n => parseInt(n) || 0);
+      if ((h * 60 + m) < 17 * 60 + 20) return null;
+    }
+
     if (nbSessionsForNote === 3 && dow === 4) return 'Just Play';
     if (nbSessionsForNote === 4 && dow === 5) return 'Four Play';
     return null;
@@ -2279,9 +2294,9 @@
   //  Mardi → All Play · Jeudi → Just Play · Vendredi → Four Play
   // ══════════════════════════════════════════════
   const LASER_DAY_OFFERS = {
-    2: '⚡ Ce jour-là, profitez de l\'offre <strong>All Play</strong> — 7€/partie (dès 17h) !',
-    4: '⚡ Ce jour-là, profitez de l\'offre <strong>Just Play</strong> — 17€ les 3 parties (dès 17h) !',
-    5: '⚡ Ce jour-là, profitez de l\'offre <strong>Four Play</strong> — 21€/pers., 4 parties, 4 pers. minimum (dès 17h) !',
+    2: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>All Play</strong> — 7€/partie (${heureTxt}) !`,
+    4: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Just Play</strong> — 17€ les 3 parties (${heureTxt}) !`,
+    5: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Four Play</strong> — 21€/pers., 4 parties, 4 pers. minimum (${heureTxt}) !`,
   };
 
   function updateActiviteOfferHint() {
@@ -2295,9 +2310,16 @@
       return;
     }
     const [y, mo, d] = dateVal.split('-').map(Number);
-    const dow = new Date(y, mo - 1, d).getDay();
+    const dateObj = new Date(y, mo - 1, d);
+    const dow = dateObj.getDay();
     if (LASER_DAY_OFFERS[dow]) {
-      hint.innerHTML = LASER_DAY_OFFERS[dow];
+      // Durant les vacances scolaires (et l'été), le site ouvre dès 14h mais
+      // les offres ne démarrent qu'à partir de 17h20 (sessions classiques
+      // au tarif normal avant cet horaire) ; hors vacances, l'ouverture est
+      // déjà proche de 17h.
+      const periode = getPeriode(dateObj);
+      const heureTxt = (periode === 'vacances' || periode === 'ete') ? 'dès 17h20 en vacances' : 'dès 17h';
+      hint.innerHTML = LASER_DAY_OFFERS[dow](heureTxt);
       hint.style.display = 'block';
     } else {
       hint.style.display = 'none';
