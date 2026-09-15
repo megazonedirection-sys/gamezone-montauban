@@ -904,7 +904,8 @@
     'Laser Game',
     'VR Zone (action, arcade, zombies…)',
     'Escape Game VR',
-    'Blind Test Musical'
+    'Blind Test Musical',
+    'EVG / EVJF'
   ];
 
   // Vérifie que la fin de la prestation ne dépasse pas l'heure de fermeture
@@ -1022,6 +1023,7 @@
     const msgs = {
       activite_manuelle:     '📋 Votre demande nécessite une validation personnalisée par notre équipe.',
       profil_incompatible_creneau: '🧩 Ce créneau est déjà occupé par un groupe de composition différente — un agent va vérifier la meilleure organisation pour votre partie.',
+      evg_tout_ou_rien:            '🥂 L\'une des deux parties de votre forfait EVG/EVJF est déjà occupée par un groupe incompatible — un agent va vérifier la meilleure organisation pour votre soirée.',
       trop_proche:           '⏰ Réservation trop proche du créneau — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
@@ -1068,7 +1070,7 @@
     return { ...ctx, auto: check.auto, reason: check.reason };
   }
 
-  async function pushToCalendit(fd, creneauOverride, groupInfo) {
+  async function pushToCalendit(fd, creneauOverride, groupInfo, forceManual) {
     if (!db) throw new Error('Firebase non disponible');
     // Lecture directe DOM — évite les bugs FormData avec HTMLInputElement
     const prenom   = (document.getElementById('prenom')?.value   || '').trim();
@@ -1080,7 +1082,12 @@
     const { activite, actKey, date, time, pers, ageBreakdown, profil } = ctx;
 
     // ── Vérification auto-validation ──
-    const check = await checkAutoValidation(actKey, activite, date, time, pers, ageBreakdown);
+    // "forceManual" : cas EVG/EVJF tout ou rien — une des 2 parties du forfait
+    // n'était pas compatible, donc les 2 repartent en validation manuelle
+    // ensemble, sans même re-vérifier celle-ci individuellement.
+    const check = forceManual
+      ? { auto: false, reason: 'evg_tout_ou_rien' }
+      : await checkAutoValidation(actKey, activite, date, time, pers, ageBreakdown);
 
     // Cas "impossible" (ex: dépassement de l'heure de fermeture) : on ne crée
     // AUCUNE demande, ni auto-confirmée ni en attente — juste un refus clair.
@@ -1118,6 +1125,8 @@
     }
     // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
     if (activite === 'Escape Game VR') demande.slotSpan = 3;
+    // EVG/EVJF confirmé → type "EVC" (couleur rouge) une fois la réservation créée
+    if (activite === 'EVG / EVJF') demande.forceType = 't-evc';
     // Offre spéciale (Just Play / Four Play), pour affichage clair dans l'email client
     const offerLabel = detectOfferLabel(fd);
     if (offerLabel) demande.offerLabel = offerLabel;
@@ -1656,11 +1665,26 @@
     if (nbSessions >= 3) sessionCreneaux.push(fd.get('creneau3'));
     if (nbSessions >= 4) sessionCreneaux.push(fd.get('creneau4'));
 
+    // EVG/EVJF : 2 parties de 20 min avec une pause d'un créneau entre les
+    // deux (le client ne choisit qu'une seule heure, la 2e partie est
+    // calculée automatiquement — même logique de pause que pour le Laser Game).
+    if (fd.get('activite') === 'EVG / EVJF') {
+      const idx1 = currentCreneaux.indexOf(sessionCreneaux[0]);
+      const idx2 = idx1 + 2; // +1 pour la partie 1, +1 pour la pause
+      if (idx1 >= 0 && idx2 < currentCreneaux.length) {
+        sessionCreneaux.push(currentCreneaux[idx2]);
+      }
+    }
+
     // ── Sessions multiples : on vérifie TOUT avant de confirmer quoi que ce soit ──
-    // Si une session ne respecte pas les règles/places, elle est écartée et
-    // seules les sessions valides sont réellement soumises/confirmées.
+    // Cas général (Laser Game Just Play/Four Play, etc.) : une session invalide
+    // est écartée, seules les sessions valides sont réellement soumises/confirmées.
+    // Cas EVG/EVJF : "tout ou rien" — si l'une des 2 parties n'est pas
+    // compatible, les DEUX repartent ensemble en validation manuelle, jamais
+    // de confirmation partielle (les 2 parties forment un seul forfait).
     let creneauxToSubmit = sessionCreneaux;
     let droppedSessions = [];
+    let forceAllManual = false;
     if (sessionCreneaux.length > 1) {
       let checks = [];
       try {
@@ -1673,8 +1697,12 @@
       if (checks.length === sessionCreneaux.length) {
         const invalid = checks.filter(c => !c.auto);
         if (invalid.length > 0) {
-          creneauxToSubmit = checks.filter(c => c.auto).map(c => c.creneau);
-          droppedSessions  = invalid;
+          if (fd.get('activite') === 'EVG / EVJF') {
+            forceAllManual = true;
+          } else {
+            creneauxToSubmit = checks.filter(c => c.auto).map(c => c.creneau);
+            droppedSessions  = invalid;
+          }
         }
       }
     }
@@ -1691,7 +1719,7 @@
       try {
         for (let i = 0; i < creneauxToSubmit.length; i++) {
           const groupInfo = groupId ? { groupId, index: i, total: creneauxToSubmit.length } : null;
-          results.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo));
+          results.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo, forceAllManual));
         }
         await sendStaffEmail(fd, results, droppedSessions);
       } catch(e) { console.warn('Firebase/EmailJS local:', e); }
@@ -1704,7 +1732,7 @@
     try {
       for (let i = 0; i < creneauxToSubmit.length; i++) {
         const groupInfo = groupId ? { groupId, index: i, total: creneauxToSubmit.length } : null;
-        pushResults.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo));
+        pushResults.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo, forceAllManual));
       }
       await sendStaffEmail(fd, pushResults, droppedSessions);
     } catch(e) { console.warn('Firebase/EmailJS:', e); }
