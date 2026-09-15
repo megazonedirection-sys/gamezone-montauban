@@ -1274,12 +1274,24 @@
     // Rappel de la règle : une session n'est confirmée automatiquement que si
     // TOUTES les places/règles sont respectées. Sinon, seules les sessions
     // valides sont proposées/confirmées ; les autres sont clairement écartées.
-    if (dropped.length === 0) {
+    // Cas particulier "tout ou rien" (ex: EVG/EVJF) : aucune session n'est
+    // écartée (dropped vide), mais aucune n'est auto-confirmée non plus —
+    // toutes repartent ensemble en validation manuelle.
+    const allConfirmed = list.length > 0 && list.every(r => r.autoValidated);
+    if (dropped.length === 0 && allConfirmed) {
       // Toutes les sessions demandées ont pu être confirmées
       title.textContent = '✅ Sessions confirmées !';
       const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ✅ confirmée`).join('<br>');
       sub.innerHTML = `${lines}<br><br>Toutes vos sessions sont <strong>confirmées</strong> et enregistrées dans notre planning. Un email récapitulatif va vous être envoyé.`;
       notice.style.display = 'none';
+    } else if (dropped.length === 0 && !allConfirmed) {
+      // Cas tout ou rien : toutes les sessions sont soumises ensemble en
+      // validation manuelle, aucune n'est écartée ni confirmée séparément.
+      title.textContent = '⏳ Demande reçue !';
+      const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ⏳ en attente`).join('<br>');
+      sub.innerHTML = `${lines}<br><br>Votre demande a bien été transmise à l'équipe GameZone.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong>.`;
+      notice.style.display = 'block';
+      notice.textContent = getWaitingMessage(list[0] && list[0].reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
     } else if (list.length === 0) {
       // Aucune session n'a pu être confirmée
       title.textContent = '⚠️ Aucune session disponible';
