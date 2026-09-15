@@ -978,12 +978,16 @@
       }
     }
 
-    // 2. Délai minimum 40 minutes avant le créneau
+    // 2. Délai minimum avant le créneau : 40 minutes en général, mais
+    // seulement 15 minutes pour VR Zone / Escape Game VR (actKey 'vr') —
+    // le staff est déjà présent sur place pour ces activités, contrairement
+    // au Laser Game qui nécessite un temps de préparation/briefing.
     const [y, mo, d] = date.split('-').map(Number);
     const [h, m]     = time.split(':').map(Number);
     const slotDt     = new Date(y, mo - 1, d, h, m, 0);
     const diffMin    = (slotDt - Date.now()) / 60000;
-    if (diffMin < 40)
+    const delaiMin   = (activite === 'vr') ? 15 : 40;
+    if (diffMin < delaiMin)
       return { auto: false, reason: 'trop_proche' };
 
     // 3. Verrou staff actif sur ce créneau ?
@@ -1031,7 +1035,7 @@
       activite_manuelle:     '📋 Votre demande nécessite une validation personnalisée par notre équipe.',
       profil_incompatible_creneau: '🧩 Ce créneau est déjà occupé par un groupe de composition différente — un agent va vérifier la meilleure organisation pour votre partie.',
       evg_tout_ou_rien:            '🥂 L\'une des deux parties de votre forfait EVG/EVJF est déjà occupée par un groupe incompatible — un agent va vérifier la meilleure organisation pour votre soirée.',
-      trop_proche:           '⏰ Réservation trop proche du créneau — un agent va confirmer rapidement.',
+      trop_proche:           '⏰ Réservation trop proche de l\'heure de début de session — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
       ferme_ce_jour:         '⛔ Nous sommes fermés ce jour-là — réservation impossible.',
@@ -1248,6 +1252,32 @@
       })
     });
   }
+  // Affiche le résultat quand une demande multi-sessions comporte au moins
+  // une session non auto-validable : dans ce cas, RIEN n'est enregistré
+  // (ni la/les session(s) disponible(s), ni la/les indisponible(s)) — le
+  // client voit un visuel vert/rouge par session demandée et doit ajuster
+  // sa demande ou nous contacter.
+  function showMultiSessionUnavailable(checks) {
+    const title  = document.getElementById('success-title');
+    const sub    = document.getElementById('success-sub');
+    const notice = document.getElementById('success-notice');
+    const form   = document.getElementById('resa-form');
+
+    title.textContent = '⚠️ Demande non enregistrée';
+    const lines = checks.map(c => c.auto
+      ? `<span style="color:#00ff88;">✅ ${c.time}</span>`
+      : `<span style="color:#ff2222;">❌ ${c.time}</span>`
+    ).join('<br>');
+    sub.innerHTML = lines;
+    notice.style.display = 'block';
+    notice.textContent =
+      `L'un de vos choix n'est pas ou plus disponible, merci de modifier votre demande ` +
+      `ou nous contacter afin d'étudier une solution alternative pour ces horaires.`;
+
+    form.style.display = 'none';
+    document.getElementById('form-success').style.display = 'block';
+  }
+
   function showSuccess(results, droppedSessions) {
     const list    = Array.isArray(results) ? results : [results];
     const dropped = droppedSessions || [];
@@ -1699,8 +1729,10 @@
     }
 
     // ── Sessions multiples : on vérifie TOUT avant de confirmer quoi que ce soit ──
-    // Cas général (Laser Game Just Play/Four Play, etc.) : une session invalide
-    // est écartée, seules les sessions valides sont réellement soumises/confirmées.
+    // Cas général (Laser Game Just Play/Four Play, VR Zone, Blind Test) : si
+    // au moins une session n'est pas auto-validable, RIEN n'est enregistré —
+    // le client voit un visuel vert/rouge par session et doit ajuster sa
+    // demande ou nous contacter.
     // Cas EVG/EVJF : "tout ou rien" — si l'une des 2 parties n'est pas
     // compatible, les DEUX repartent ensemble en validation manuelle, jamais
     // de confirmation partielle (les 2 parties forment un seul forfait).
@@ -1722,8 +1754,15 @@
           if (fd.get('activite') === 'EVG / EVJF') {
             forceAllManual = true;
           } else {
-            creneauxToSubmit = checks.filter(c => c.auto).map(c => c.creneau);
-            droppedSessions  = invalid;
+            // Nouveau comportement : si au moins une session de la demande
+            // multi-sessions n'est pas auto-validable, on n'enregistre RIEN
+            // du tout (ni la session disponible, ni l'indisponible) — le
+            // client voit directement le détail vert/rouge et doit ajuster
+            // sa demande ou nous contacter.
+            showMultiSessionUnavailable(checks);
+            btn.textContent = '⚡ Envoyer la demande';
+            btn.disabled = false;
+            return;
           }
         }
       }
