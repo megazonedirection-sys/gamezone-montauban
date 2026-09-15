@@ -1751,32 +1751,42 @@
 
     // ── En production : Firebase + EmailJS + Formsubmit ──
     let pushResults = [];
+    // Détermine si cette réservation nécessite une action du staff (au moins
+    // une session en attente, ou une session écartée) — dans ce cas seulement,
+    // le staff est notifié par email (EmailJS + copie de secours FormSubmit).
+    // Une réservation 100% auto-confirmée reste consultable dans CalendIT
+    // ("Demandes") en cas de besoin, mais n'encombre plus la boîte mail.
+    let needsStaffNotification = true;
     try {
       for (let i = 0; i < creneauxToSubmit.length; i++) {
         const groupInfo = groupId ? { groupId, index: i, total: creneauxToSubmit.length } : null;
         pushResults.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo, forceAllManual));
       }
-      await sendStaffEmail(fd, pushResults, droppedSessions);
+      needsStaffNotification = droppedSessions.length > 0 || !(pushResults.length > 0 && pushResults.every(r => r.autoValidated));
+      if (needsStaffNotification) await sendStaffEmail(fd, pushResults, droppedSessions);
     } catch(e) { console.warn('Firebase/EmailJS:', e); }
 
     const allAuto = pushResults.length > 0 && pushResults.every(r => r.autoValidated);
 
-    // Formsubmit.co (copie mail backup)
-    fd.append('_subject', allAuto
-      ? '✅ Réservation confirmée — GameZone Montauban'
-      : '⏳ Demande de réservation — GameZone Montauban');
-    fd.append('_language', 'fr');
-    fd.append('_captcha', 'false');
-    fd.append('_template', 'table');
+    // Formsubmit.co (copie mail backup) — même règle : uniquement si une
+    // action du staff est nécessaire.
+    if (needsStaffNotification) {
+      fd.append('_subject', allAuto
+        ? '✅ Réservation confirmée — GameZone Montauban'
+        : '⏳ Demande de réservation — GameZone Montauban');
+      fd.append('_language', 'fr');
+      fd.append('_captcha', 'false');
+      fd.append('_template', 'table');
 
-    try {
-      const response = await fetch('https://formsubmit.co/ajax/contact@gamezone-montauban.com', {
-        method: 'POST',
-        body: fd,
-        headers: { 'Accept': 'application/json' }
-      });
-      await response.json();
-    } catch {}
+      try {
+        const response = await fetch('https://formsubmit.co/ajax/295e55d8436d0433f0c50bb491dffe57', {
+          method: 'POST',
+          body: fd,
+          headers: { 'Accept': 'application/json' }
+        });
+        await response.json();
+      } catch {}
+    }
 
     showSuccess(pushResults, droppedSessions);
     return;
