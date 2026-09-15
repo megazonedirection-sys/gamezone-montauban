@@ -759,7 +759,14 @@
     if (typeof firebase !== 'undefined') {
       firebase.initializeApp(firebaseConfig);
       db = firebase.database();
-      firebase.auth().signInAnonymously().catch(e => console.warn('Auth anon:', e));
+      // Session limitée à cet onglet (sessionStorage, pas localStorage) : sans
+      // ça, cette connexion anonyme écrase la session du staff connecté sur
+      // CalendIT si les deux pages sont ouvertes dans des onglets du même
+      // navigateur (même site = même stockage d'authentification partagé
+      // par défaut), et le déconnecte au passage.
+      firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION)
+        .then(() => firebase.auth().signInAnonymously())
+        .catch(e => console.warn('Auth anon:', e));
     }
   } catch(e) { console.warn('Firebase init:', e); }
 
@@ -1125,6 +1132,9 @@
     }
     // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
     if (activite === 'Escape Game VR') demande.slotSpan = 3;
+    // Escape Game VR confirmé → type "Escape Game VR" (couleur bleue), comme
+    // quand le staff le crée manuellement dans CalendIT.
+    if (activite === 'Escape Game VR') demande.forceType = 't-escapevr';
     // EVG/EVJF confirmé → type "EVC" (couleur rouge) une fois la réservation créée
     if (activite === 'EVG / EVJF') demande.forceType = 't-evc';
     // Offre spéciale (Just Play / Four Play), pour affichage clair dans l'email client
@@ -2041,6 +2051,17 @@
     const show = (val === 'Laser Game' || val === 'VR Zone (action, arcade, zombies…)' || val === 'Blind Test Musical');
     document.getElementById('multi-session-block').style.display = show ? 'block' : 'none';
     if (!show) { resetMultiSessions(); return; }
+    // Seul le Laser Game propose 3 (Just Play) et 4 (Four Play) sessions —
+    // VR Zone et Blind Test Musical sont plafonnés à 2 sessions.
+    const opt3 = document.getElementById('nb-sessions-opt3');
+    const opt4 = document.getElementById('nb-sessions-opt4');
+    const isLaser = (val === 'Laser Game');
+    if (opt3) opt3.style.display = isLaser ? '' : 'none';
+    if (!isLaser && opt4) opt4.style.display = 'none';
+    if (!isLaser && parseInt(document.getElementById('nb-sessions').value) > 2) {
+      document.getElementById('nb-sessions').value = '2';
+      onNbSessionsChange();
+    }
     updateMultiSessionHint();
     onSession1Change(); // recalcule le blocage automatique si des créneaux sont déjà choisis
   }
