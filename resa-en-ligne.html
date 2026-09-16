@@ -1007,11 +1007,13 @@
 
   // Calcule les créneaux réels des parties d'un Forfait Anniversaire à partir
   // du 1er créneau choisi par le client :
-  // - Période normale (semaine, hors vacances) : 3 parties fixes — 1 créneau
-  //   de pause après la 1ère, puis 2 créneaux de pause après la 2e.
-  // - Week-end / vacances / été : 2 parties par défaut, avec 2 créneaux de
-  //   pause entre elles ; une 3e partie (même pause de 2 créneaux) si le
-  //   client a coché l'option payante.
+  // - 3 parties (semaine normale HORS vacances/week-end, OU week-end/
+  //   vacances/été avec l'option payante cochée) : cascade classique — 1
+  //   créneau de pause après la 1ère partie, puis 2 créneaux de pause après
+  //   la 2e. La 3e partie payante se comporte exactement comme la 3e partie
+  //   du forfait classique, pas d'espacement différent.
+  // - 2 parties par défaut (week-end/vacances/été, SANS l'option payante) :
+  //   2 créneaux de pause entre les deux.
   // Centralisé ici pour que la validation (heure de fermeture) et la
   // soumission réelle des réservations restent toujours alignées.
   function computeAnnivSessionCreneaux(dateStr, startCreneau, want3rd) {
@@ -1019,18 +1021,24 @@
     if (idx1 === -1) return [startCreneau];
     const result = [startCreneau];
 
-    if (isAnnivReducedPeriod(dateStr)) {
+    // Une partie ne doit jamais être ajoutée si elle dépasse l'heure de
+    // fermeture réelle du jour — être dans les limites du tableau de
+    // créneaux ne suffit pas, ce tableau pouvant contenir des horaires
+    // au-delà de la fermeture effective de ce jour précis.
+    const fitsBeforeClosing = (creneauStr) => checkClosingTime('Forfait Anniversaire', dateStr, creneauToTime(creneauStr));
+
+    if (isAnnivReducedPeriod(dateStr) && !want3rd) {
+      // 2 parties par défaut : 2 créneaux de pause entre les deux.
       const idx2 = idx1 + 3; // 1 partie + 2 créneaux de pause
-      if (idx2 >= currentCreneaux.length) return result;
+      if (idx2 >= currentCreneaux.length || !fitsBeforeClosing(currentCreneaux[idx2])) return result;
       result.push(currentCreneaux[idx2]);
-      if (want3rd) {
-        const idx3 = idx2 + 3; // encore 1 partie + 2 créneaux de pause
-        if (idx3 < currentCreneaux.length) result.push(currentCreneaux[idx3]);
-      }
     } else {
+      // 3 parties (semaine normale, ou week-end/vacances/été avec l'option
+      // payante) : même cascade que le forfait classique, dans tous les cas.
       const idx2 = idx1 + 2; // 1 partie + 1 créneau de pause
       const idx3 = idx2 + 3; // 1 partie + 2 créneaux de pause
       if (idx2 >= currentCreneaux.length || idx3 >= currentCreneaux.length) return result;
+      if (!fitsBeforeClosing(currentCreneaux[idx2]) || !fitsBeforeClosing(currentCreneaux[idx3])) return result;
       result.push(currentCreneaux[idx2]);
       result.push(currentCreneaux[idx3]);
     }
@@ -1154,6 +1162,7 @@
       activite_manuelle:     '📋 Votre demande nécessite une validation personnalisée par notre équipe.',
       profil_incompatible_creneau: '🧩 Ce créneau est déjà occupé par un groupe de composition différente — un agent va vérifier la meilleure organisation pour votre partie.',
       evg_tout_ou_rien:            '🥂 L\'une des deux parties de votre forfait EVG/EVJF est déjà occupée par un groupe incompatible — un agent va vérifier la meilleure organisation pour votre soirée.',
+      anniv_tout_ou_rien:          '🎂 L\'une des parties de votre forfait anniversaire est déjà occupée par un groupe incompatible — un agent va vérifier la meilleure organisation pour votre fête.',
       trop_proche:           '⏰ Réservation trop proche de l\'heure de début de session — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
@@ -1222,11 +1231,12 @@
     const { activite, actKey, date, time, pers, ageBreakdown, profil } = ctx;
 
     // ── Vérification auto-validation ──
-    // "forceManual" : cas EVG/EVJF tout ou rien — une des 2 parties du forfait
-    // n'était pas compatible, donc les 2 repartent en validation manuelle
-    // ensemble, sans même re-vérifier celle-ci individuellement.
+    // "forceManual" : cas EVG/EVJF ou Forfait Anniversaire "tout ou rien" —
+    // une des parties du forfait n'était pas compatible, donc toutes
+    // repartent en validation manuelle ensemble, sans même re-vérifier
+    // celle-ci individuellement.
     const check = forceManual
-      ? { auto: false, reason: 'evg_tout_ou_rien' }
+      ? { auto: false, reason: activite === 'Forfait Anniversaire' ? 'anniv_tout_ou_rien' : 'evg_tout_ou_rien' }
       : await checkAutoValidation(actKey, activite, date, time, pers, ageBreakdown);
 
     // Cas "impossible" (ex: dépassement de l'heure de fermeture) : on ne crée
@@ -1270,8 +1280,13 @@
     if (activite === 'Escape Game VR') demande.forceType = 't-escapevr';
     // EVG/EVJF confirmé → type "EVC" (couleur rouge) une fois la réservation créée
     if (activite === 'EVG / EVJF') demande.forceType = 't-evc';
-    // Forfait Anniversaire → type "Anniversaire 3 parties" (couleur beige dédiée)
-    if (activite === 'Forfait Anniversaire') demande.forceType = 't-anniv3';
+    // Forfait Anniversaire → couleur selon la PÉRIODE, pas le nombre de
+    // parties : week-end/vacances/été = orange "Anniversaire" (t-anniv),
+    // même si la 3e partie payante a été ajoutée ; semaine normale = beige
+    // "Anniversaire 3 parties" (t-anniv3).
+    if (activite === 'Forfait Anniversaire') {
+      demande.forceType = isAnnivReducedPeriod(date) ? 't-anniv' : 't-anniv3';
+    }
     // Offre spéciale (All Play / Just Play / Four Play), pour affichage clair
     // dans l'email client ET pour colorer la réservation dans CalendIT comme
     // son équivalent créé manuellement par le staff (t-team/t-jeu3/t-vendredi).
@@ -1848,13 +1863,21 @@
       // Forfait Anniversaire : la fin réelle dépend du nombre de parties (2
       // ou 3 selon la période) et des vraies pauses entre elles — jamais
       // couverte par le sélecteur nb-sessions générique ci-dessus.
+      let annivMissingPartie = false;
       if (activiteVal === 'Forfait Anniversaire') {
         const want3rd = document.getElementById('anniv-3eme-partie').checked;
         const annivTimes = computeAnnivSessionCreneaux(dateVal, creneau, want3rd);
-        lastTime = creneauToTime(annivTimes[annivTimes.length - 1]);
+        const expectedCount = isAnnivReducedPeriod(dateVal) ? (want3rd ? 3 : 2) : 3;
+        if (annivTimes.length < expectedCount) {
+          // La (ou une) partie demandée ne tient pas avant la fermeture —
+          // ne jamais facturer/annoncer une partie qui ne sera pas créée.
+          annivMissingPartie = true;
+        } else {
+          lastTime = creneauToTime(annivTimes[annivTimes.length - 1]);
+        }
       }
 
-      if (!checkClosingTime(activiteVal, dateVal, lastTime)) {
+      if (annivMissingPartie || !checkClosingTime(activiteVal, dateVal, lastTime)) {
         document.getElementById('err-creneau-fermeture').classList.add('visible');
         valid = false;
       } else {
