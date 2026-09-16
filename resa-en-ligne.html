@@ -714,7 +714,7 @@
 
       <!-- Message libre -->
       <div class="form-group">
-        <label for="message">Message / informations complémentaires</label>
+        <label for="message" id="message-label">Message / informations complémentaires</label>
         <textarea id="message" name="message" placeholder="Précisions, demandes spéciales…"></textarea>
       </div>
 
@@ -786,18 +786,18 @@
     return creneau.replace('h', ':');
   }
 
-  // Détecte l'offre spéciale (Just Play / Four Play) applicable, si activité
-  // Laser Game + jour + nombre de sessions correspondent. Durant les vacances
-  // scolaires (et l'été), le site ouvre plus tôt (dès 14h) : ces offres n'y
-  // sont proposées qu'à partir de la session de 17h20 — avant cet horaire,
-  // durant les vacances, le client réserve des sessions "classiques" au tarif
-  // normal, sans offre. Hors vacances, l'ouverture est déjà proche de 17h,
-  // donc aucune restriction d'horaire supplémentaire n'est nécessaire.
+  // Détecte l'offre spéciale (All Play / Just Play / Four Play) applicable,
+  // si activité Laser Game + jour (+ nombre de sessions pour Just/Four Play)
+  // correspondent. Durant les vacances scolaires (et l'été), le site ouvre
+  // plus tôt (dès 14h) : ces offres n'y sont proposées qu'à partir de la
+  // session de 17h20 — avant cet horaire, durant les vacances, le client
+  // réserve des sessions "classiques" au tarif normal, sans offre. Hors
+  // vacances, l'ouverture est déjà proche de 17h, donc aucune restriction
+  // d'horaire supplémentaire n'est nécessaire.
   // Retourne null si aucune offre ne s'applique.
   function detectOfferLabel(fd) {
     const activite = fd.get('activite') || '';
-    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
-    if (activite !== 'Laser Game' || nbSessionsForNote < 3) return null;
+    if (activite !== 'Laser Game') return null;
     const dateStr = fd.get('date') || '';
     if (!dateStr) return null;
     const [dy, dmo, dd] = dateStr.split('-').map(Number);
@@ -811,6 +811,9 @@
       if ((h * 60 + m) < 17 * 60 + 20) return null;
     }
 
+    // All Play (Mardi) : tarif au partie, quel que soit le nombre de sessions
+    if (dow === 2) return 'All Play';
+    const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
     if (nbSessionsForNote === 3 && dow === 4) return 'Just Play';
     if (nbSessionsForNote === 4 && dow === 5) return 'Four Play';
     return null;
@@ -1027,8 +1030,9 @@
         if (usedPers > 0) return { auto: false, reason: 'creneau_complet', available: 0 };
       } else {
         // Laser et VR (dont Escape) : vérifier la capacité sur chaque créneau occupé
-        for (let i = 0; i < nbCreneauxOccupes; i++) {
-          const t = i === 0 ? time : addMinutesToTime(time, i * 20);
+        const occupiedTimes = nbCreneauxOccupes > 1 ? getVrSpanTimes(date, time, nbCreneauxOccupes) : [time];
+        for (let i = 0; i < occupiedTimes.length; i++) {
+          const t = occupiedTimes[i];
           const dispoSnap = await db.ref(`dispo/${activite}|${date}|${t}`).once('value');
           const used = dispoSnap.exists() ? (dispoSnap.val() || 0) : 0;
           if (i === 0) usedPers = used;
@@ -1156,9 +1160,15 @@
     if (activite === 'Escape Game VR') demande.forceType = 't-escapevr';
     // EVG/EVJF confirmé → type "EVC" (couleur rouge) une fois la réservation créée
     if (activite === 'EVG / EVJF') demande.forceType = 't-evc';
-    // Offre spéciale (Just Play / Four Play), pour affichage clair dans l'email client
+    // Offre spéciale (All Play / Just Play / Four Play), pour affichage clair
+    // dans l'email client ET pour colorer la réservation dans CalendIT comme
+    // son équivalent créé manuellement par le staff (t-team/t-jeu3/t-vendredi).
+    const OFFER_FORCE_TYPE = { 'All Play': 't-team', 'Just Play': 't-jeu3', 'Four Play': 't-vendredi' };
     const offerLabel = detectOfferLabel(fd);
-    if (offerLabel) demande.offerLabel = offerLabel;
+    if (offerLabel) {
+      demande.offerLabel = offerLabel;
+      if (OFFER_FORCE_TYPE[offerLabel]) demande.forceType = OFFER_FORCE_TYPE[offerLabel];
+    }
     // Lie cette session aux autres sessions de la même réservation multi-session,
     // pour que le staff puisse les traiter ensemble (un seul email client).
     if (groupInfo && groupInfo.groupId) {
@@ -1569,7 +1579,16 @@
     // Nb personnes (sauf Laser qui a ses propres champs)
     if (!isLaserActive()) {
       const nb = document.getElementById('nb-personnes').value;
-      if (!nb || parseInt(nb) < 1) { showError('nb-personnes', true); valid = false; } else showError('nb-personnes', false);
+      const nbMin = (isAnnivActive() || isEvgActive()) ? 6 : 1;
+      if (!nb || parseInt(nb) < nbMin) {
+        showError('nb-personnes', true);
+        document.getElementById('err-nb-personnes').textContent = nbMin > 1
+          ? `Minimum ${nbMin} personnes requis pour cette formule.`
+          : 'Veuillez indiquer le nombre de personnes.';
+        valid = false;
+      } else {
+        showError('nb-personnes', false);
+      }
     }
 
     // Champs Blind Test
@@ -1923,6 +1942,7 @@
 
     if (isAnniv || isEVG) {
       nbInput.min = '6'; nbInput.max = '24'; nbInput.placeholder = '6 min.';
+      if (parseInt(nbInput.value) < 6) nbInput.value = '6';
     } else if (isVR || isEscape) {
       nbInput.min = isEscape ? '2' : '1'; nbInput.max = '4'; nbInput.placeholder = isEscape ? '2–4' : '1–4';
       if (isEscape && parseInt(nbInput.value) < 2) nbInput.value = '2';
@@ -1937,6 +1957,22 @@
     refreshCreneaux();
     updateMultiSessionVisibility();
     updateActiviteOfferHint();
+
+    // Libellé du champ "message" adapté à l'activité : pour VR Zone et Escape
+    // Game VR, ce champ sert à indiquer le titre du jeu souhaité plutôt qu'un
+    // message libre générique.
+    const messageLabel = document.getElementById('message-label');
+    const messageInput = document.getElementById('message');
+    if (messageLabel) {
+      messageLabel.textContent = (isVR || isEscape)
+        ? 'Titre du jeu souhaité'
+        : 'Message / informations complémentaires';
+    }
+    if (messageInput) {
+      messageInput.placeholder = (isVR || isEscape)
+        ? 'ex : Zombie Outbreak, Alien Invasion…'
+        : 'Précisions, demandes spéciales…';
+    }
   }
 
   // ══════════════════════════════════════════════
@@ -1956,7 +1992,7 @@
     { debut: '2026-10-17', fin: '2026-11-01', label: 'Toussaint' },
     { debut: '2026-12-19', fin: '2027-01-03', label: 'Noël' },
     { debut: '2027-02-06', fin: '2027-02-21', label: 'Hiver' },
-    { debut: '2027-04-17', fin: '2027-05-02', label: 'Printemps' },
+    { debut: '2027-04-03', fin: '2027-04-18', label: 'Printemps' },
     { debut: '2027-07-03', fin: '2027-08-31', label: 'Été' },
   ];
   const ANNEE_MAX = 2027;
@@ -2067,6 +2103,29 @@
   }
   const VR_SLOTS_OLD = makeVrSlots(ALL_SLOTS_OLD);
   const VR_SLOTS_NEW = makeVrSlots(ALL_SLOTS_NEW);
+
+  // Renvoie les `span` créneaux VR consécutifs (en "HH:MM") à partir de
+  // `timeStr`, en marchant sur les index de la vraie grille horaire (ancien
+  // planning 20 min / nouveau planning 25 min à partir du 01/09/2026) —
+  // remplace un calcul par pas fixe de 20 minutes qui ne correspond plus à
+  // la grille après le changement d'horaires (l'Escape Game VR, qui occupe
+  // 3 créneaux d'affilée, vérifiait alors la capacité sur des horaires hors
+  // grille — donc toujours vides — au lieu des vrais 2e et 3e créneaux).
+  function getVrSpanTimes(dateStr, timeStr, span) {
+    const isNew = dateStr >= NEW_SCHEDULE_DATE;
+    const activeVrSlots = isNew ? VR_SLOTS_NEW : VR_SLOTS_OLD; // minutes depuis minuit
+    const [h, m] = timeStr.split(':').map(Number);
+    const startIdx = activeVrSlots.indexOf(h * 60 + m);
+    const times = [timeStr];
+    if (startIdx === -1) return times;
+    for (let i = 1; i < span; i++) {
+      const idx = startIdx + i;
+      if (idx >= activeVrSlots.length) break;
+      const tmin = activeVrSlots[idx];
+      times.push(`${String(Math.floor(tmin/60)).padStart(2,'0')}:${String(tmin%60).padStart(2,'0')}`);
+    }
+    return times;
+  }
 
   function buildBTSlots() {
     const slots = [];
