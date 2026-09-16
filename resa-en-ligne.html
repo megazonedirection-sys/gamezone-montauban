@@ -1472,8 +1472,16 @@
       ? '0 0 8px rgba(255,0,0,0.5)'
       : '0 0 8px rgba(68,255,136,0.5)';
 
-    // Sync nb-personnes hidden
-    document.getElementById('nb-personnes').value = total > 0 ? total : '';
+    // Sync nb-personnes hidden — UNIQUEMENT si le Laser Game est réellement
+    // l'activité active. Anniversaire et EVG/EVJF partagent la même capacité
+    // (actKey 'laser') donc déclenchent aussi cette fonction au changement de
+    // créneau, mais utilisent leur propre champ "Nombre de personnes" en
+    // saisie directe — sans ce garde-fou, leur valeur était silencieusement
+    // écrasée par le total (toujours 0) des champs de répartition Laser,
+    // cachés pour ces activités.
+    if (isLaserActive()) {
+      document.getElementById('nb-personnes').value = total > 0 ? total : '';
+    }
 
     // Hide errors on input
     document.getElementById('err-laser-total').classList.remove('visible');
