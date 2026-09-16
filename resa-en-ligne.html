@@ -1200,6 +1200,8 @@
     if (activite === 'Escape Game VR') demande.forceType = 't-escapevr';
     // EVG/EVJF confirmé → type "EVC" (couleur rouge) une fois la réservation créée
     if (activite === 'EVG / EVJF') demande.forceType = 't-evc';
+    // Forfait Anniversaire → type "Anniversaire 3 parties" (couleur beige dédiée)
+    if (activite === 'Forfait Anniversaire') demande.forceType = 't-anniv3';
     // Offre spéciale (All Play / Just Play / Four Play), pour affichage clair
     // dans l'email client ET pour colorer la réservation dans CalendIT comme
     // son équivalent créé manuellement par le staff (t-team/t-jeu3/t-vendredi).
@@ -1860,14 +1862,25 @@
       }
     }
 
-    // ── Sessions multiples : on vérifie TOUT avant de confirmer quoi que ce soit ──
-    // Cas général (Laser Game Just Play/Four Play, VR Zone, Blind Test) : si
-    // au moins une session n'est pas auto-validable, RIEN n'est enregistré —
-    // le client voit un visuel vert/rouge par session et doit ajuster sa
-    // demande ou nous contacter.
-    // Cas EVG/EVJF : "tout ou rien" — si l'une des 2 parties n'est pas
-    // compatible, les DEUX repartent ensemble en validation manuelle, jamais
-    // de confirmation partielle (les 2 parties forment un seul forfait).
+    // Forfait Anniversaire : 3 parties — le client ne choisit que l'heure de
+    // la 1ère, les 2 suivantes sont calculées automatiquement : 1 créneau de
+    // pause après la partie 1, puis 2 créneaux de pause après la partie 2.
+    if (fd.get('activite') === 'Forfait Anniversaire') {
+      const idx1 = currentCreneaux.indexOf(sessionCreneaux[0]);
+      const idx2 = idx1 + 2; // +1 pour la partie 1, +1 pour la pause d'1 créneau
+      const idx3 = idx2 + 3; // +1 pour la partie 2, +2 pour la pause de 2 créneaux
+      if (idx1 >= 0 && idx2 < currentCreneaux.length && idx3 < currentCreneaux.length) {
+        sessionCreneaux.push(currentCreneaux[idx2]);
+        sessionCreneaux.push(currentCreneaux[idx3]);
+      }
+    }
+
+    // Cas EVG/EVJF et Forfait Anniversaire : "tout ou rien" — ces activités
+    // sont TOUJOURS en validation manuelle par choix (jamais d'auto-
+    // validation), donc chaque partie est systématiquement "non auto" ; il
+    // ne faut surtout pas les rejeter comme le ferait le cas général — les
+    // parties repartent ensemble en validation manuelle groupée, jamais de
+    // confirmation partielle (elles forment un seul forfait).
     let creneauxToSubmit = sessionCreneaux;
     let droppedSessions = [];
     let forceAllManual = false;
@@ -1883,7 +1896,7 @@
       if (checks.length === sessionCreneaux.length) {
         const invalid = checks.filter(c => !c.auto);
         if (invalid.length > 0) {
-          if (fd.get('activite') === 'EVG / EVJF') {
+          if (fd.get('activite') === 'EVG / EVJF' || fd.get('activite') === 'Forfait Anniversaire') {
             forceAllManual = true;
           } else {
             // Nouveau comportement : si au moins une session de la demande
