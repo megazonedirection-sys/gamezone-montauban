@@ -548,6 +548,42 @@
 
       <!-- CHAMPS ANNIVERSAIRE -->
       <div id="anniv-fields" class="special-block">
+        <div class="special-block-title">🎯 Répartition des joueurs</div>
+        <div class="form-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:0.75rem;">
+          <div class="form-group">
+            <label for="anniv-enfants79">Enf. 7-9 *</label>
+            <input type="number" id="anniv-enfants79" name="anniv_enfants79" placeholder="0" min="0" max="24" value="0" oninput="onAnnivChange(this)">
+            <span class="field-error" id="err-anniv-enfants79">Champ obligatoire.</span>
+          </div>
+          <div class="form-group">
+            <label for="anniv-enfants1012">Enf. 10-12 *</label>
+            <input type="number" id="anniv-enfants1012" name="anniv_enfants1012" placeholder="0" min="0" max="24" value="0" oninput="onAnnivChange(this)">
+            <span class="field-error" id="err-anniv-enfants1012">Champ obligatoire.</span>
+          </div>
+          <div class="form-group">
+            <label for="anniv-ados1315">Ados 13-15 *</label>
+            <input type="number" id="anniv-ados1315" name="anniv_ados1315" placeholder="0" min="0" max="24" value="0" oninput="onAnnivChange(this)">
+            <span class="field-error" id="err-anniv-ados1315">Champ obligatoire.</span>
+          </div>
+          <div class="form-group">
+            <label for="anniv-ados1618">Ados 16-18 *</label>
+            <input type="number" id="anniv-ados1618" name="anniv_ados1618" placeholder="0" min="0" max="24" value="0" oninput="onAnnivChange(this)">
+            <span class="field-error" id="err-anniv-ados1618">Champ obligatoire.</span>
+          </div>
+          <div class="form-group">
+            <label for="anniv-adultes-nb">Adultes *</label>
+            <input type="number" id="anniv-adultes-nb" name="anniv_adultes_nb" placeholder="0" min="0" max="24" value="0" oninput="onAnnivChange(this)">
+            <span class="field-error" id="err-anniv-adultes-nb">Champ obligatoire.</span>
+          </div>
+        </div>
+        <div id="anniv-total-bar" style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);margin-top:0.25rem;">
+          <span style="font-family:'Orbitron',monospace;font-size:0.6rem;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;">Total</span>
+          <span id="anniv-total" style="font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;">0</span>
+          <span style="font-size:0.8rem;color:var(--text-muted);" id="anniv-max-label">/ 24 joueurs maximum · 6 minimum</span>
+        </div>
+        <span class="field-error" id="err-anniv-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser le nombre de places restantes.</span>
+        <span class="field-error" id="err-anniv-min" style="margin-top:0.5rem;">Minimum 6 joueurs requis pour un anniversaire.</span>
+
         <div class="conditions-box">
           <span style="font-size:1.2rem;flex-shrink:0;">⚠️</span>
           <div class="warn-text">
@@ -568,20 +604,6 @@
             <input type="number" id="anniv-age" name="anniv_age" placeholder="7" min="7" max="17">
             <span class="field-error" id="err-anniv-age">Champ obligatoire.</span>
           </div>
-        </div>
-        <div class="form-group">
-          <label for="anniv-heure">Heure souhaitée de début *</label>
-          <input type="time" id="anniv-heure" name="anniv_heure">
-          <span class="field-error" id="err-anniv-heure">Champ obligatoire.</span>
-        </div>
-        <div class="form-group">
-          <label for="anniv-adultes">Y aura-t-il des adultes dans la partie ? *</label>
-          <select id="anniv-adultes" name="anniv_adultes">
-            <option value="" disabled selected>Choisir…</option>
-            <option value="Oui">Oui</option>
-            <option value="Non">Non</option>
-          </select>
-          <span class="field-error" id="err-anniv-adultes">Champ obligatoire.</span>
         </div>
       </div>
 
@@ -852,8 +874,16 @@
     if (blE && blE !== '0') parts.push(`Enf.: ${blE}`);
 
     // Anniversaire
-    const ap = fd.get('anniv_prenom'), aa = fd.get('anniv_age'), ah = fd.get('anniv_heure'), aad = fd.get('anniv_adultes');
-    if (ap) parts.push(`Anniversaire: ${ap}, ${aa} ans, ${ah}, adultes: ${aad}`);
+    const ap = fd.get('anniv_prenom'), aa = fd.get('anniv_age');
+    const anE79 = fd.get('anniv_enfants79'), anE1012 = fd.get('anniv_enfants1012'), anAd13 = fd.get('anniv_ados1315'), anAd16 = fd.get('anniv_ados1618'), anA = fd.get('anniv_adultes_nb');
+    if (ap) {
+      parts.push(`Anniversaire: ${ap}, ${aa} ans`);
+      if (anE79 && anE79 !== '0') parts.push(`Enf. 7-9: ${anE79}`);
+      if (anE1012 && anE1012 !== '0') parts.push(`Enf. 10-12: ${anE1012}`);
+      if (anAd13 && anAd13 !== '0') parts.push(`Ados 13-15: ${anAd13}`);
+      if (anAd16 && anAd16 !== '0') parts.push(`Ados 16-18: ${anAd16}`);
+      if (anA && anA !== '0') parts.push(`Adultes: ${anA}`);
+    }
 
     // EVG
     const ep = fd.get('evg_prenom');
@@ -1080,13 +1110,23 @@
     let ageBreakdown = null;
     let profil = null;
     if (actKey === 'laser') {
-      ageBreakdown = {
-        enfants79:   parseInt(fd.get('laser_enfants79'))   || 0,
-        enfants1012: parseInt(fd.get('laser_enfants1012')) || 0,
-        ados1315:    parseInt(fd.get('laser_ados1315'))    || 0,
-        ados1618:    parseInt(fd.get('laser_ados1618'))    || 0,
-        adultes:     parseInt(fd.get('laser_adultes'))     || 0,
-      };
+      if (activite === 'Forfait Anniversaire') {
+        ageBreakdown = {
+          enfants79:   parseInt(fd.get('anniv_enfants79'))   || 0,
+          enfants1012: parseInt(fd.get('anniv_enfants1012')) || 0,
+          ados1315:    parseInt(fd.get('anniv_ados1315'))    || 0,
+          ados1618:    parseInt(fd.get('anniv_ados1618'))    || 0,
+          adultes:     parseInt(fd.get('anniv_adultes_nb'))  || 0,
+        };
+      } else {
+        ageBreakdown = {
+          enfants79:   parseInt(fd.get('laser_enfants79'))   || 0,
+          enfants1012: parseInt(fd.get('laser_enfants1012')) || 0,
+          ados1315:    parseInt(fd.get('laser_ados1315'))    || 0,
+          ados1618:    parseInt(fd.get('laser_ados1618'))    || 0,
+          adultes:     parseInt(fd.get('laser_adultes'))     || 0,
+        };
+      }
       profil = computeGroupProfile(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes);
     }
     return { activite, actKey, date, time, creneau, pers, ageBreakdown, profil };
@@ -1488,6 +1528,40 @@
     document.getElementById('err-laser-min').classList.remove('visible');
   }
 
+  // Répartition des joueurs pour Anniversaire — même logique que
+  // onLaserChange (voir son commentaire pour le garde-fou isAnnivActive()).
+  function onAnnivChange(changedEl) {
+    const e79   = parseInt(document.getElementById('anniv-enfants79').value)   || 0;
+    const e1012 = parseInt(document.getElementById('anniv-enfants1012').value) || 0;
+    const ad13  = parseInt(document.getElementById('anniv-ados1315').value)    || 0;
+    const ad16  = parseInt(document.getElementById('anniv-ados1618').value)    || 0;
+    const a     = parseInt(document.getElementById('anniv-adultes-nb').value)  || 0;
+    let total = e79 + e1012 + ad13 + ad16 + a;
+    const effectiveMax = currentSlotRemaining !== null ? currentSlotRemaining : 24;
+
+    if (changedEl && total > effectiveMax) {
+      const currentVal = parseInt(changedEl.value) || 0;
+      const excedent = total - effectiveMax;
+      changedEl.value = Math.max(0, currentVal - excedent);
+      return onAnnivChange();
+    }
+
+    const totalEl = document.getElementById('anniv-total');
+    totalEl.textContent = total;
+    totalEl.style.color = (total > effectiveMax || total < 6) ? '#ff4444' : '#44ff88';
+    totalEl.style.textShadow = (total > effectiveMax || total < 6)
+      ? '0 0 8px rgba(255,0,0,0.5)'
+      : '0 0 8px rgba(68,255,136,0.5)';
+
+    // Sync nb-personnes hidden — uniquement si Anniversaire est réellement actif.
+    if (isAnnivActive()) {
+      document.getElementById('nb-personnes').value = total > 0 ? total : '';
+    }
+
+    document.getElementById('err-anniv-total').classList.remove('visible');
+    document.getElementById('err-anniv-min').classList.remove('visible');
+  }
+
   function isLaserActive() {
     return document.getElementById('laser-fields').style.display !== 'none';
   }
@@ -1584,10 +1658,10 @@
     const activite = document.getElementById('activite').value;
     if (!activite) { showError('activite', true); valid = false; } else showError('activite', false);
 
-    // Nb personnes (sauf Laser qui a ses propres champs)
-    if (!isLaserActive()) {
+    // Nb personnes (sauf Laser et Anniversaire qui ont leurs propres champs de répartition)
+    if (!isLaserActive() && !isAnnivActive()) {
       const nb = document.getElementById('nb-personnes').value;
-      const nbMin = (isAnnivActive() || isEvgActive()) ? 6 : 1;
+      const nbMin = isEvgActive() ? 6 : 1;
       if (!nb || parseInt(nb) < nbMin) {
         showError('nb-personnes', true);
         document.getElementById('err-nb-personnes').textContent = nbMin > 1
@@ -1716,11 +1790,27 @@
       const aa = document.getElementById('anniv-age').value;
       if (!aa) { showError('anniv-age', true); valid = false; } else showError('anniv-age', false);
 
-      const ah = document.getElementById('anniv-heure').value;
-      if (!ah) { showError('anniv-heure', true); valid = false; } else showError('anniv-heure', false);
-
-      const adu = document.getElementById('anniv-adultes').value;
-      if (!adu) { showError('anniv-adultes', true); valid = false; } else showError('anniv-adultes', false);
+      const e79   = parseInt(document.getElementById('anniv-enfants79').value)   || 0;
+      const e1012 = parseInt(document.getElementById('anniv-enfants1012').value) || 0;
+      const ad13  = parseInt(document.getElementById('anniv-ados1315').value)    || 0;
+      const ad16  = parseInt(document.getElementById('anniv-ados1618').value)    || 0;
+      const a     = parseInt(document.getElementById('anniv-adultes-nb').value)  || 0;
+      const total = e79 + e1012 + ad13 + ad16 + a;
+      const effectiveMax = currentSlotRemaining !== null ? currentSlotRemaining : 24;
+      if (total < 6) {
+        document.getElementById('err-anniv-min').classList.add('visible');
+        valid = false;
+      } else {
+        document.getElementById('err-anniv-min').classList.remove('visible');
+      }
+      if (total > effectiveMax) {
+        const errEl = document.getElementById('err-anniv-total');
+        errEl.textContent = `Il ne reste que ${effectiveMax} place${effectiveMax > 1 ? 's' : ''} sur ce créneau — veuillez réduire le nombre de joueurs ou choisir un autre horaire.`;
+        errEl.classList.add('visible');
+        valid = false;
+      } else {
+        document.getElementById('err-anniv-total').classList.remove('visible');
+      }
     }
 
     // Champs EVG
@@ -1884,7 +1974,9 @@
       vr_adultes:'VR — Adultes', vr_ados:'VR — Ados 14+', vr_enfants:'VR — Enf. 10+',
       escape_adultes:'Escape — Adultes', escape_ados:'Escape — Ados 14+', escape_enfants:'Escape — Enf. 12+',
       blind_adultes:'Blind — Adultes', blind_ados:'Blind — Ados 14+', blind_enfants:'Blind — Enf. 12+',
-      anniv_prenom:'Anniv — Prénom', anniv_age:'Anniv — Âge', anniv_heure:'Anniv — Heure', anniv_adultes:'Anniv — Adultes',
+      anniv_prenom:'Anniv — Prénom', anniv_age:'Anniv — Âge',
+      anniv_enfants79:'Anniv — Enf. 7-9', anniv_enfants1012:'Anniv — Enf. 10-12',
+      anniv_ados1315:'Anniv — Ados 13-15', anniv_ados1618:'Anniv — Ados 16-18', anniv_adultes_nb:'Anniv — Adultes',
       evg_prenom:'EVG — Prénom', message:'Message'
     };
     let rows = '';
@@ -1927,7 +2019,7 @@
 
     // Masquer nb-personnes pour les activités avec répartition détaillée
     const nbGroup = document.getElementById('nb-personnes').closest('.form-group');
-    const hideNb = isLaser || isVR || isEscape || isBlind;
+    const hideNb = isLaser || isVR || isEscape || isBlind || isAnniv;
     nbGroup.style.display = hideNb ? 'none' : '';
     if (hideNb) document.getElementById('nb-personnes').value = '';
 
@@ -1936,9 +2028,10 @@
     if (!isVR)     { ['vr-adultes','vr-ados','vr-enfants'].forEach(id => { const el=document.getElementById(id); if(el) el.value='0'; }); document.getElementById('vr-total').textContent='0'; }
     if (!isEscape) { ['escape-adultes','escape-ados','escape-enfants'].forEach(id => { const el=document.getElementById(id); if(el) el.value='0'; }); document.getElementById('escape-total').textContent='0'; }
     if (!isBlind)  { ['blind-adultes','blind-ados','blind-enfants'].forEach(id => { const el=document.getElementById(id); if(el) el.value='0'; }); document.getElementById('blind-total').textContent='0'; }
+    if (!isAnniv)  { ['anniv-enfants79','anniv-enfants1012','anniv-ados1315','anniv-ados1618','anniv-adultes-nb'].forEach(id => { const el=document.getElementById(id); if(el) el.value='0'; }); document.getElementById('anniv-total').textContent='0'; }
 
     if (!isAnniv) {
-      ['anniv-prenom','anniv-age','anniv-heure','anniv-adultes'].forEach(id => {
+      ['anniv-prenom','anniv-age'].forEach(id => {
         const el = document.getElementById(id);
         if (el) { el.value = ''; showError(id, false); }
       });
@@ -1948,9 +2041,13 @@
       if (ep) { ep.value = ''; showError('evg-prenom', false); }
     }
 
-    if (isAnniv || isEVG) {
+    if (isEVG) {
       nbInput.min = '6'; nbInput.max = '24'; nbInput.placeholder = '6 min.';
       if (parseInt(nbInput.value) < 6) nbInput.value = '6';
+    } else if (isAnniv) {
+      // Champ caché, désormais piloté par la répartition des joueurs ci-dessus
+      // (comme le Laser Game) — pas de valeur forcée ici.
+      nbInput.min = '6'; nbInput.max = '24'; nbInput.placeholder = '6 min.';
     } else if (isVR || isEscape) {
       nbInput.min = isEscape ? '2' : '1'; nbInput.max = '4'; nbInput.placeholder = isEscape ? '2–4' : '1–4';
       if (isEscape && parseInt(nbInput.value) < 2) nbInput.value = '2';
@@ -2307,6 +2404,10 @@
           const maxLabel = document.getElementById('laser-max-label');
           if (maxLabel) maxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max.)`;
           onLaserChange();
+
+          const annivMaxLabel = document.getElementById('anniv-max-label');
+          if (annivMaxLabel) annivMaxLabel.textContent = `/ ${remaining} place${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} (sur ${max} max., 6 minimum)`;
+          onAnnivChange();
         } else if (actKey === 'vr') {
           onVrChange('vr');
           onVrChange('escape');
