@@ -605,6 +605,15 @@
             <span class="field-error" id="err-anniv-age">Champ obligatoire.</span>
           </div>
         </div>
+        <div id="anniv-3eme-partie-wrap" style="display:none;margin-top:0.75rem;padding:0.6rem 0.8rem;background:rgba(255,136,0,0.06);border:1px solid rgba(255,136,0,0.2);">
+          <label style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;font-weight:600;">
+            <input type="checkbox" id="anniv-3eme-partie" name="anniv_3eme_partie" style="width:auto;">
+            Je souhaite offrir une 3ème partie à 5€/pers
+          </label>
+          <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.3rem;">
+            Le week-end et pendant les vacances scolaires, le forfait anniversaire comprend 2 parties par défaut.
+          </div>
+        </div>
       </div>
 
       <!-- CHAMPS EVG/EVJF -->
@@ -883,6 +892,7 @@
       if (anAd13 && anAd13 !== '0') parts.push(`Ados 13-15: ${anAd13}`);
       if (anAd16 && anAd16 !== '0') parts.push(`Ados 16-18: ${anAd16}`);
       if (anA && anA !== '0') parts.push(`Adultes: ${anA}`);
+      if (fd.get('anniv_3eme_partie') === 'on') parts.push('🎯 3ème partie payante (5€/pers)');
     }
 
     // EVG
@@ -968,7 +978,13 @@
   // dès la validation du formulaire, avant toute tentative de soumission.
   function checkClosingTime(activiteLabel, date, time) {
     const [y, mo, d] = date.split('-').map(Number);
-    const duration = SESSION_DURATION_MIN[activiteLabel] || 20;
+    // Le Forfait Anniversaire se compose de vraies parties Laser de ~20 min
+    // chacune (les pauses entre parties sont déjà représentées par l'écart
+    // entre les horaires de chaque créneau, géré ailleurs) — la vérification
+    // de fermeture doit donc porter sur la durée d'UNE partie, jamais sur la
+    // durée totale du forfait (150 min), qui provoquait un rejet à tort dès
+    // que la dernière partie approchait de la fermeture.
+    const duration = activiteLabel === 'Forfait Anniversaire' ? 20 : (SESSION_DURATION_MIN[activiteLabel] || 20);
     const heureFin = addMinutesToTime(time, duration);
     const infoJour = getInfoJour(new Date(y, mo - 1, d));
     if (!infoJour.ouvert) return true; // autre vérification s'en charge (jour fermé)
@@ -976,6 +992,60 @@
     const finMinutes  = fh * 60 + fm;
     const fermMinutes = infoJour.fermeture * 60 + (infoJour.fermetureMin || 0);
     return finMinutes <= fermMinutes;
+  }
+
+  // Le week-end et pendant les vacances scolaires (vacances ou été), le
+  // forfait anniversaire comprend 2 parties par défaut (au lieu de 3) — le
+  // client peut ajouter une 3e partie payante via une case à cocher dédiée.
+  function isAnnivReducedPeriod(dateStr) {
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const dc = new Date(y, mo - 1, d);
+    const isWeekendDay = (dc.getDay() === 6 || dc.getDay() === 0);
+    const periode = getPeriode(dc);
+    return isWeekendDay || periode === 'vacances' || periode === 'ete';
+  }
+
+  // Calcule les créneaux réels des parties d'un Forfait Anniversaire à partir
+  // du 1er créneau choisi par le client :
+  // - Période normale (semaine, hors vacances) : 3 parties fixes — 1 créneau
+  //   de pause après la 1ère, puis 2 créneaux de pause après la 2e.
+  // - Week-end / vacances / été : 2 parties par défaut, avec 2 créneaux de
+  //   pause entre elles ; une 3e partie (même pause de 2 créneaux) si le
+  //   client a coché l'option payante.
+  // Centralisé ici pour que la validation (heure de fermeture) et la
+  // soumission réelle des réservations restent toujours alignées.
+  function computeAnnivSessionCreneaux(dateStr, startCreneau, want3rd) {
+    const idx1 = currentCreneaux.indexOf(startCreneau);
+    if (idx1 === -1) return [startCreneau];
+    const result = [startCreneau];
+
+    if (isAnnivReducedPeriod(dateStr)) {
+      const idx2 = idx1 + 3; // 1 partie + 2 créneaux de pause
+      if (idx2 >= currentCreneaux.length) return result;
+      result.push(currentCreneaux[idx2]);
+      if (want3rd) {
+        const idx3 = idx2 + 3; // encore 1 partie + 2 créneaux de pause
+        if (idx3 < currentCreneaux.length) result.push(currentCreneaux[idx3]);
+      }
+    } else {
+      const idx2 = idx1 + 2; // 1 partie + 1 créneau de pause
+      const idx3 = idx2 + 3; // 1 partie + 2 créneaux de pause
+      if (idx2 >= currentCreneaux.length || idx3 >= currentCreneaux.length) return result;
+      result.push(currentCreneaux[idx2]);
+      result.push(currentCreneaux[idx3]);
+    }
+    return result;
+  }
+
+  // Affiche ou masque la case "3e partie payante", visible uniquement quand
+  // le forfait anniversaire n'a que 2 parties par défaut (week-end/vacances/été).
+  function updateAnniv3emePartieVisibility() {
+    const wrap = document.getElementById('anniv-3eme-partie-wrap');
+    if (!wrap) return;
+    const dateVal = document.getElementById('date').value;
+    const show = isAnnivActive() && dateVal && isAnnivReducedPeriod(dateVal);
+    wrap.style.display = show ? 'block' : 'none';
+    if (!show) document.getElementById('anniv-3eme-partie').checked = false;
   }
 
   async function checkAutoValidation(activite, activiteLabel, date, time, pers, ageBreakdown) {
@@ -1774,6 +1844,16 @@
       if (nbSessions >= 2 && document.getElementById('creneau2').value) lastTime = creneauToTime(document.getElementById('creneau2').value);
       if (nbSessions >= 3 && document.getElementById('creneau3').value) lastTime = creneauToTime(document.getElementById('creneau3').value);
       if (nbSessions >= 4 && document.getElementById('creneau4').value) lastTime = creneauToTime(document.getElementById('creneau4').value);
+
+      // Forfait Anniversaire : la fin réelle dépend du nombre de parties (2
+      // ou 3 selon la période) et des vraies pauses entre elles — jamais
+      // couverte par le sélecteur nb-sessions générique ci-dessus.
+      if (activiteVal === 'Forfait Anniversaire') {
+        const want3rd = document.getElementById('anniv-3eme-partie').checked;
+        const annivTimes = computeAnnivSessionCreneaux(dateVal, creneau, want3rd);
+        lastTime = creneauToTime(annivTimes[annivTimes.length - 1]);
+      }
+
       if (!checkClosingTime(activiteVal, dateVal, lastTime)) {
         document.getElementById('err-creneau-fermeture').classList.add('visible');
         valid = false;
@@ -1862,17 +1942,13 @@
       }
     }
 
-    // Forfait Anniversaire : 3 parties — le client ne choisit que l'heure de
-    // la 1ère, les 2 suivantes sont calculées automatiquement : 1 créneau de
-    // pause après la partie 1, puis 2 créneaux de pause après la partie 2.
+    // Forfait Anniversaire : 2 ou 3 parties selon la période (voir
+    // computeAnnivSessionCreneaux) — le client ne choisit que l'heure de la
+    // 1ère, les suivantes sont calculées automatiquement.
     if (fd.get('activite') === 'Forfait Anniversaire') {
-      const idx1 = currentCreneaux.indexOf(sessionCreneaux[0]);
-      const idx2 = idx1 + 2; // +1 pour la partie 1, +1 pour la pause d'1 créneau
-      const idx3 = idx2 + 3; // +1 pour la partie 2, +2 pour la pause de 2 créneaux
-      if (idx1 >= 0 && idx2 < currentCreneaux.length && idx3 < currentCreneaux.length) {
-        sessionCreneaux.push(currentCreneaux[idx2]);
-        sessionCreneaux.push(currentCreneaux[idx3]);
-      }
+      const want3rd = fd.get('anniv_3eme_partie') === 'on';
+      const annivTimes = computeAnnivSessionCreneaux(fd.get('date'), sessionCreneaux[0], want3rd);
+      sessionCreneaux.push(...annivTimes.slice(1));
     }
 
     // Cas EVG/EVJF et Forfait Anniversaire : "tout ou rien" — ces activités
@@ -2075,6 +2151,7 @@
     refreshCreneaux();
     updateMultiSessionVisibility();
     updateActiviteOfferHint();
+    updateAnniv3emePartieVisibility();
 
     // Libellé du champ "message" adapté à l'activité : pour VR Zone et Escape
     // Game VR, ce champ sert à indiquer le titre du jeu souhaité plutôt qu'un
@@ -2588,6 +2665,7 @@
       currentSlotRemaining = null;
       resetMultiSessions();
       updateActiviteOfferHint();
+      updateAnniv3emePartieVisibility();
 
       if (!val) {
         creneauSel.innerHTML = '<option value="" disabled selected>Choisir une date d\'abord</option>';
