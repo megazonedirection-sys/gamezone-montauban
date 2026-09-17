@@ -2760,7 +2760,9 @@
 
   // Pré-sélection de l'activité via paramètre URL (ex: resa-en-ligne.html?activite=Laser%20Game)
   // Utilisé par les boutons "Réserver" du site vitrine pour ouvrir directement
-  // la bonne activité, sans repasser par le choix dans la liste déroulante.
+  // la bonne activité, sans repasser par le choix dans la liste déroulante —
+  // et sans permettre au client d'en choisir une autre depuis ce lien précis
+  // (les autres options du menu sont retirées).
   (function preselectActiviteFromURL() {
     const params = new URLSearchParams(window.location.search);
     const act = params.get('activite');
@@ -2768,6 +2770,7 @@
     const sel = document.getElementById('activite');
     const match = Array.from(sel.options).find(o => o.value === act);
     if (match) {
+      Array.from(sel.options).forEach(o => { if (o !== match) o.remove(); });
       sel.value = act;
       onActiviteChange();
     }
