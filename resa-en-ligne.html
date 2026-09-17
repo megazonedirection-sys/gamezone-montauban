@@ -1287,6 +1287,11 @@
       demande.ados1618    = ageBreakdown.ados1618;
       demande.adultes     = ageBreakdown.adultes;
     }
+    if (activite === 'Forfait Anniversaire') {
+      demande.annivPrenom = fd.get('anniv_prenom') || '';
+      demande.annivAge    = fd.get('anniv_age') || '';
+      demande.annivPaidExtra = fd.get('anniv_3eme_partie') === 'on';
+    }
     // Escape Game VR occupe 3 créneaux d'affilée pour une seule séance de 60 min
     if (activite === 'Escape Game VR') demande.slotSpan = 3;
     // Escape Game VR confirmé → type "Escape Game VR" (couleur bleue), comme
