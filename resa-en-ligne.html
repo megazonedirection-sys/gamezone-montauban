@@ -911,6 +911,20 @@
   // ══════════════════════════════════════════════
   const MAX_CAP = { laser: 24, vr: 4, bt: 12 };
 
+  // Nombre réel de gilets laser actuellement disponibles, modifiable par le
+  // staff dans CalendIT (ex: un gilet en réparation) — partagé via Firebase
+  // (config/maxVests) pour que le formulaire public respecte toujours la
+  // vraie capacité, jamais une valeur fixe de 24.
+  async function getLaserMaxCap() {
+    try {
+      const snap = await db.ref('config/maxVests').once('value');
+      return snap.exists() ? snap.val() : MAX_CAP.laser;
+    } catch(e) {
+      console.warn('Erreur lecture capacité laser:', e);
+      return MAX_CAP.laser;
+    }
+  }
+
   // Durée standard d'une session par activité (en minutes) — sert à vérifier
   // que la fin de la prestation ne dépasse pas l'heure de fermeture.
   const SESSION_DURATION_MIN = {
@@ -1127,7 +1141,7 @@
     // 4. Capacité disponible sur ce créneau (et sur les créneaux suivants
     // occupés par la même réservation — cas de l'Escape Game VR qui bloque
     // 3 créneaux d'affilée pour une seule séance de 60 min).
-    const max = MAX_CAP[activite] || 24;
+    const max = activite === 'laser' ? await getLaserMaxCap() : (MAX_CAP[activite] || 24);
     const nbCreneauxOccupes = (activiteLabel === 'Escape Game VR') ? 3 : 1;
     let usedPers = 0;
     try {
@@ -2498,7 +2512,7 @@
         }
         onBlindChange(); // recalcule avec la vraie limite
       } else {
-        const max = MAX_CAP[actKey] || 24;
+        const max = actKey === 'laser' ? await getLaserMaxCap() : (MAX_CAP[actKey] || 24);
         const remaining = Math.max(0, max - used);
         if (remaining === 0) {
           hint.textContent = '🔴 Ce créneau est complet.';
