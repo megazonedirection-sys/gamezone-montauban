@@ -797,9 +797,31 @@
       // par défaut), et le déconnecte au passage.
       firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION)
         .then(() => firebase.auth().signInAnonymously())
-        .catch(e => console.warn('Auth anon:', e));
+        .then(() => ecouterFermetures())
+        .catch(e => { console.warn('Auth anon:', e); fermeturesPretes(); });
     }
   } catch(e) { console.warn('Firebase init:', e); }
+
+  // ── Journées fermées exceptionnellement (saisies dans le planning équipe) ──
+  // Lues dans planning/fermetures/{AAAA-MM-JJ} = true. En cas d'erreur de
+  // lecture, on ne bloque rien (le formulaire continue de fonctionner).
+  let FERMETURES = {};
+  let fermeturesPretes;
+  const fermeturesChargees = new Promise(r => { fermeturesPretes = r; });
+  setTimeout(() => fermeturesPretes(), 5000); // jamais d'attente infinie
+  function ecouterFermetures() {
+    db.ref('planning/fermetures').on('value', snap => {
+      FERMETURES = snap.val() || {};
+      fermeturesPretes();
+      // Si une date est déjà choisie, rafraîchir son affichage
+      const di = document.getElementById('date');
+      if (di && di.value) di.dispatchEvent(new Event('change'));
+    }, err => { console.warn('Fermetures:', err); fermeturesPretes(); });
+  }
+  function isFermetureExceptionnelle(date) {
+    const k = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    return !!FERMETURES[k];
+  }
 
   // Mapping activité → clé CalendIT
   function mapActiviteToCalendit(val) {
@@ -1077,11 +1099,12 @@
     // -1. Le jour demandé doit être ouvert (congés annuels inclus) — refus
     // définitif, aucune réservation possible sur ces dates, quelle que soit
     // l'activité.
+    await fermeturesChargees; // les fermetures exceptionnelles doivent être connues
     {
       const [yy, mm, dd] = date.split('-').map(Number);
       const infoJourCheck = getInfoJour(new Date(yy, mm - 1, dd));
       if (!infoJourCheck.ouvert)
-        return { auto: false, reason: infoJourCheck.conge ? 'conges_annuels' : 'ferme_ce_jour', impossible: true };
+        return { auto: false, reason: infoJourCheck.conge ? 'conges_annuels' : infoJourCheck.exceptionnel ? 'ferme_exceptionnel' : 'ferme_ce_jour', impossible: true };
     }
 
     // 0. La fin de la prestation ne doit JAMAIS dépasser l'heure de fermeture du
@@ -1181,6 +1204,7 @@
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
       ferme_ce_jour:         '⛔ Nous sommes fermés ce jour-là — réservation impossible.',
+      ferme_exceptionnel:    '⛔ Nous sommes exceptionnellement fermés ce jour-là — réservation impossible.',
       staff_prioritaire:     '👤 Notre équipe est actuellement sur ce créneau. Votre demande est prioritaire.',
       capacite_insuffisante: '🎯 Le créneau est presque complet. Confirmation dès vérification des disponibilités.',
       creneau_complet:       '🎵 Ce créneau Blind Test est complet. Nous vous proposons une alternative.',
@@ -1471,7 +1495,10 @@
         notice.style.display = 'none';
       } else if (isImpossible) {
         title.textContent  = '⛔ Réservation impossible';
-        sub.innerHTML      = 'Ce créneau dépasse l\'heure de fermeture. Aucune réservation n\'a été enregistrée — merci de choisir un horaire plus tôt ou de nous contacter directement.';
+        sub.innerHTML      = (list[0].reason === 'depasse_fermeture'
+          ? 'Ce créneau dépasse l\'heure de fermeture.'
+          : getWaitingMessage(list[0].reason, '').replace(/^⛔\s*/, '')) +
+          ' Aucune réservation n\'a été enregistrée — merci de choisir une autre date ou un autre horaire, ou de nous contacter directement.';
         notice.style.display = 'none';
       } else {
         title.textContent  = '⏳ Demande reçue !';
@@ -2271,6 +2298,7 @@
 
   function getInfoJour(date) {
     if (isCongeAnnuel(date)) return { ouvert: false, conge: true };
+    if (isFermetureExceptionnelle(date)) return { ouvert: false, exceptionnel: true };
     const dow = date.getDay(); // 0=dim
     const periode = getPeriode(date);
 
@@ -2727,6 +2755,8 @@
         hintDate.style.color = '#ff4444';
         if (info.conge) {
           hintDate.textContent = '🚫 Fermé pour congés annuels (24/08 au 08/09/2026 inclus). Réouverture le 09/09/2026.';
+        } else if (info.exceptionnel) {
+          hintDate.textContent = '🚫 Fermé exceptionnellement ce jour. Merci de choisir une autre date.';
         } else {
           const periode = getPeriode(dc);
           let msg = '🚫 Fermé ce jour. ';
