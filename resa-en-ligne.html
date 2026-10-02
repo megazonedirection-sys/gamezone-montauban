@@ -1337,7 +1337,10 @@
     // (soumise dans la foulée) ne relise ces mêmes données.
     if (check.auto) {
       const dispoKey = `${actKey}|${date}|${time}`;
-      const writes = [db.ref(`dispo/${dispoKey}`).transaction(cur => (cur || 0) + pers).catch(()=>{})];
+      // Escape Game VR : bloquer provisoirement les 3 créneaux occupés, pas seulement le premier
+      const span = demande.slotSpan || 1;
+      const occTimes = span > 1 ? getVrSpanTimes(date, time, span) : [time];
+      const writes = occTimes.map(t => db.ref(`dispo/${actKey}|${date}|${t}`).transaction(cur => (cur || 0) + pers).catch(()=>{}));
       if (actKey === 'laser' && ageBreakdown) {
         const sig = computeCategories(ageBreakdown.enfants79, ageBreakdown.enfants1012, ageBreakdown.ados1315, ageBreakdown.ados1618, ageBreakdown.adultes).join('+');
         writes.push(db.ref(`dispo_profil/${dispoKey}/${sig}`).set(true).catch(()=>{}));
