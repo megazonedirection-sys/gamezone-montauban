@@ -805,22 +805,37 @@
   // ── Journées fermées exceptionnellement (saisies dans le planning équipe) ──
   // Lues dans planning/fermetures/{AAAA-MM-JJ} = true. En cas d'erreur de
   // lecture, on ne bloque rien (le formulaire continue de fonctionner).
+  // + horaires modifiés d'un jour : planning/horaires/{AAAA-MM-JJ} = {o:"HH:MM", c:"HH:MM"}
   let FERMETURES = {};
+  let HORAIRES = {};
   let fermeturesPretes;
   const fermeturesChargees = new Promise(r => { fermeturesPretes = r; });
   setTimeout(() => fermeturesPretes(), 5000); // jamais d'attente infinie
   function ecouterFermetures() {
-    db.ref('planning/fermetures').on('value', snap => {
-      FERMETURES = snap.val() || {};
-      fermeturesPretes();
+    let restants = 2;
+    const pret = () => { if (--restants <= 0) fermeturesPretes(); };
+    const rafraichir = () => {
       // Si une date est déjà choisie, rafraîchir son affichage
       const di = document.getElementById('date');
       if (di && di.value) di.dispatchEvent(new Event('change'));
-    }, err => { console.warn('Fermetures:', err); fermeturesPretes(); });
+    };
+    let vuF = false, vuH = false;
+    db.ref('planning/fermetures').on('value', snap => {
+      FERMETURES = snap.val() || {};
+      if (!vuF) { vuF = true; pret(); }
+      rafraichir();
+    }, err => { console.warn('Fermetures:', err); if (!vuF) { vuF = true; pret(); } });
+    db.ref('planning/horaires').on('value', snap => {
+      HORAIRES = snap.val() || {};
+      if (!vuH) { vuH = true; pret(); }
+      rafraichir();
+    }, err => { console.warn('Horaires du jour:', err); if (!vuH) { vuH = true; pret(); } });
+  }
+  function cleJour(date) {
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
   }
   function isFermetureExceptionnelle(date) {
-    const k = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-    return !!FERMETURES[k];
+    return !!FERMETURES[cleJour(date)];
   }
 
   // Mapping activité → clé CalendIT
@@ -2296,7 +2311,19 @@
     return 'normal';
   }
 
+  // Horaires du jour : horaires habituels, remplacés par les horaires modifiés
+  // saisis dans le planning équipe pour cette date (ex: 24/12 fermeture 19h).
   function getInfoJour(date) {
+    const info = getInfoJourHabituel(date);
+    const h = HORAIRES[cleJour(date)];
+    if (!info.ouvert || !h || !h.o || !h.c) return info;
+    const [oh, om] = h.o.split(':').map(Number);
+    const [ch, cm] = h.c.split(':').map(Number);
+    if ([oh, om, ch, cm].some(isNaN)) return info;
+    return { ...info, ouverture: oh, ouvertureMin: om, fermeture: ch, fermetureMin: cm, horairesModifies: true };
+  }
+
+  function getInfoJourHabituel(date) {
     if (isCongeAnnuel(date)) return { ouvert: false, conge: true };
     if (isFermetureExceptionnelle(date)) return { ouvert: false, exceptionnel: true };
     const dow = date.getDay(); // 0=dim
@@ -2688,7 +2715,7 @@
   }
 
   function genCreneaux(info, minTimeOverride, actKey, dateStr) {
-    const ouv  = Math.max(info.ouverture * 60, minTimeOverride || 0);
+    const ouv  = Math.max(info.ouverture * 60 + (info.ouvertureMin || 0), minTimeOverride || 0);
     const ferm = info.fermeture * 60 + (info.fermetureMin || 0);
     const fmt  = m => `${String(Math.floor(m/60)).padStart(2,'0')}h${String(m%60).padStart(2,'0')}`;
     const SLOT_18H55 = 18 * 60 + 55;
@@ -2770,7 +2797,7 @@
 
       dateInput.setCustomValidity('');
       hintDate.style.color = 'var(--neon-cyan)';
-      hintDate.textContent = `${getPeriodeLabel(info.periode)} · Ouvert ${info.ouverture}h–${info.fermeture}${info.fermetureMin ? 'h' + String(info.fermetureMin).padStart(2,'0') : 'h'}`;
+      hintDate.textContent = `${getPeriodeLabel(info.periode)} · Ouvert ${info.ouverture}h${info.ouvertureMin ? String(info.ouvertureMin).padStart(2,'0') : ''}–${info.fermeture}${info.fermetureMin ? 'h' + String(info.fermetureMin).padStart(2,'0') : 'h'}${info.horairesModifies ? ' (horaires exceptionnels ce jour)' : ''}`;
 
       const isWeekend = (dc.getDay() === 6 || dc.getDay() === 0);
       const minTimeOverride = (isVrEscapeActivity() && isWeekend) ? 14 * 60 : 0;
