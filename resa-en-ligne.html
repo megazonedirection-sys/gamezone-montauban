@@ -838,6 +838,57 @@
     return !!FERMETURES[cleJour(date)];
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // RÈGLE VR (VR Zone et Escape Game VR) selon l'effectif du planning
+  // — Effectif = nombre le plus bas pendant la partie (planning/effectif)
+  // — 3 ou plus : auto · 1 ou moins : fermée (effectif réduit exceptionnel)
+  // — 2, période scolaire, mardi→vendredi : auto
+  // — 2, week-end en période scolaire, ou vacances/été : auto si la règle de
+  //   créneau est respectée (départ après 18h, ou aucun laser ni anniversaire
+  //   pendant la partie), sinon sur confirmation
+  // — date non planifiée ou vérification impossible : sur confirmation
+  // Ne concerne que les NOUVELLES demandes : rien n'est modifié dans les
+  // réservations existantes.
+  // ══════════════════════════════════════════════════════════════════
+  async function chargerContexteVR(dateStr) {
+    try {
+      const [e, o] = await Promise.all([
+        db.ref(`planning/effectif/${dateStr}`).once('value'),
+        db.ref(`occupation_laser/${dateStr}`).once('value')
+      ]);
+      return { eff: e.val(), occ: o.val() || {} };
+    } catch (err) {
+      console.warn('Contexte VR:', err);
+      return { erreur: true };
+    }
+  }
+  function finPartieVR(activiteLabel, dateStr, timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const debut = h * 60 + m;
+    if (activiteLabel !== 'Escape Game VR') return debut + 20;
+    const times = getVrSpanTimes(dateStr, timeStr, 3);
+    const [lh, lm] = times[times.length - 1].split(':').map(Number);
+    return lh * 60 + lm + (dateStr >= NEW_SCHEDULE_DATE ? 25 : 20);
+  }
+  function regleVR(ctx, activiteLabel, dateStr, timeStr) {
+    if (!ctx || ctx.erreur) return { mode: 'manuel', reason: 'erreur_verification' };
+    if (!Array.isArray(ctx.eff) || !ctx.eff.length) return { mode: 'manuel', reason: 'vr_non_planifie' };
+    const [h, m] = timeStr.split(':').map(Number);
+    const debut = h * 60 + m, fin = finPartieVR(activiteLabel, dateStr, timeStr);
+    const chevauche = (list) => (list || []).some(p => Array.isArray(p) && p[0] < fin && p[1] > debut);
+    const segs = ctx.eff.filter(p => Array.isArray(p) && p[0] < fin && p[1] > debut);
+    if (!segs.length) return { mode: 'manuel', reason: 'vr_non_planifie' };
+    const n = Math.min(...segs.map(p => p[2]));
+    if (n <= 1) return { mode: 'ferme', reason: 'vr_effectif_reduit' };
+    if (n >= 3) return { mode: 'auto' };
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, mo - 1, d);
+    const dow = dateObj.getDay();
+    if (getPeriode(dateObj) === 'normal' && dow >= 2 && dow <= 5) return { mode: 'auto' };
+    const creneauOk = debut >= 18 * 60 || (!chevauche(ctx.occ.l) && !chevauche(ctx.occ.a));
+    return creneauOk ? { mode: 'auto' } : { mode: 'manuel', reason: 'vr_creneau' };
+  }
+
   // Mapping activité → clé CalendIT
   function mapActiviteToCalendit(val) {
     if (val === 'Laser Game')                        return 'laser';
@@ -1128,6 +1179,13 @@
     if (!checkClosingTime(activiteLabel, date, time))
       return { auto: false, reason: 'depasse_fermeture', impossible: true };
 
+    // 0bis. Règle VR selon l'effectif du planning (relue au moment de l'envoi)
+    if (activite === 'vr') {
+      const r = regleVR(await chargerContexteVR(date), activiteLabel, date, time);
+      if (r.mode === 'ferme')  return { auto: false, reason: r.reason, impossible: true };
+      if (r.mode === 'manuel') return { auto: false, reason: r.reason };
+    }
+
     // 1. Activité auto-validable ? (vérification sur le label original)
     if (!AUTO_LABELS.includes(activiteLabel))
       return { auto: false, reason: 'activite_manuelle' };
@@ -1220,6 +1278,9 @@
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
       ferme_ce_jour:         '⛔ Nous sommes fermés ce jour-là — réservation impossible.',
       ferme_exceptionnel:    '⛔ Nous sommes exceptionnellement fermés ce jour-là — réservation impossible.',
+      vr_effectif_reduit:    '⛔ VR indisponible sur ce créneau en raison d\'un effectif réduit exceptionnel. Merci de votre compréhension.',
+      vr_creneau:            '📋 Ce créneau VR est sur confirmation : notre équipe vérifie la disponibilité et vous répond très rapidement.',
+      vr_non_planifie:       '📋 Ce créneau VR est sur confirmation (planning de l\'équipe pas encore établi pour cette date) : réponse très rapide.',
       staff_prioritaire:     '👤 Notre équipe est actuellement sur ce créneau. Votre demande est prioritaire.',
       capacite_insuffisante: '🎯 Le créneau est presque complet. Confirmation dès vérification des disponibilités.',
       creneau_complet:       '🎵 Ce créneau Blind Test est complet. Nous vous proposons une alternative.',
@@ -2726,6 +2787,33 @@
       .map(t => fmt(t));
   }
 
+  // Affiche, dans la liste des créneaux VR, « sur confirmation » ou
+  // « Indisponible » selon la règle VR. Simple affichage : la règle est de
+  // toute façon revérifiée au moment de l'envoi.
+  let annotationVRJeton = 0;
+  async function annoterCreneauxVR(dateStr, activiteLabel) {
+    if (!db || !dateStr) return;
+    const jeton = ++annotationVRJeton;
+    const ctx = await chargerContexteVR(dateStr);
+    const sel = document.getElementById('creneau');
+    if (jeton !== annotationVRJeton || document.getElementById('date').value !== dateStr) return; // date changée entre-temps
+    let nbFerme = 0, nbTotal = 0;
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) return;
+      nbTotal++;
+      const r = regleVR(ctx, activiteLabel, dateStr, creneauToTime(opt.value));
+      if (r.mode === 'ferme') { opt.disabled = true; opt.textContent = `${opt.value} — Indisponible`; nbFerme++; }
+      else if (r.mode === 'manuel') opt.textContent = `${opt.value} — sur confirmation`;
+    });
+    const hint = document.getElementById('creneau-hint');
+    if (hint && nbFerme) {
+      hint.style.color = '#ff8800';
+      hint.textContent = nbFerme === nbTotal
+        ? 'VR indisponible ce jour en raison d\'un effectif réduit exceptionnel. Merci de votre compréhension.'
+        : 'Certains créneaux VR sont indisponibles en raison d\'un effectif réduit exceptionnel. Merci de votre compréhension.';
+    }
+  }
+
   function isVrEscapeActivity() {
     const val = document.getElementById('activite').value;
     return val === 'VR Zone (action, arcade, zombies…)' || val === 'Escape Game VR';
@@ -2815,6 +2903,7 @@
         opt.value = h; opt.textContent = h;
         creneauSel.appendChild(opt);
       });
+      if (isVrEscapeActivity()) annoterCreneauxVR(val, document.getElementById('activite').value);
     });
   })();
 
