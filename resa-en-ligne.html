@@ -1611,7 +1611,7 @@
       const isImpossible = list[0] && list[0].impossible;
       if (isAuto) {
         title.textContent  = '✅ Réservation confirmée !';
-        sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning.<br>Un email de confirmation avec tous les détails va vous être envoyé dans quelques instants.';
+        sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning, <strong>dès maintenant</strong>.<br>Un email récapitulatif va vous être envoyé, mais il peut prendre quelques minutes à arriver — <strong>inutile de soumettre une nouvelle demande</strong>, votre place est déjà réservée.';
         notice.style.display = 'none';
       } else if (isImpossible) {
         title.textContent  = '⛔ Réservation impossible';
@@ -1622,7 +1622,7 @@
         notice.style.display = 'none';
       } else {
         title.textContent  = '⏳ Demande reçue !';
-        sub.innerHTML      = 'Votre demande a bien été transmise à l\'équipe GameZone.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong>.';
+        sub.innerHTML      = 'Votre demande a bien été <strong>enregistrée et transmise</strong> à l\'équipe GameZone, dès maintenant.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong> — <strong>inutile de soumettre une nouvelle demande</strong> en attendant.';
         notice.style.display = 'block';
         notice.textContent = getWaitingMessage(list[0] && list[0].reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
       }
@@ -1643,14 +1643,14 @@
       // Toutes les sessions demandées ont pu être confirmées
       title.textContent = '✅ Sessions confirmées !';
       const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ✅ confirmée`).join('<br>');
-      sub.innerHTML = `${lines}<br><br>Toutes vos sessions sont <strong>confirmées</strong> et enregistrées dans notre planning. Un email récapitulatif va vous être envoyé.`;
+      sub.innerHTML = `${lines}<br><br>Toutes vos sessions sont <strong>confirmées</strong> et enregistrées dans notre planning, dès maintenant. Un email récapitulatif va vous être envoyé, mais il peut prendre quelques minutes — <strong>inutile de soumettre une nouvelle demande</strong>.`;
       notice.style.display = 'none';
     } else if (dropped.length === 0 && !allConfirmed) {
       // Cas tout ou rien : toutes les sessions sont soumises ensemble en
       // validation manuelle, aucune n'est écartée ni confirmée séparément.
       title.textContent = '⏳ Demande reçue !';
       const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ⏳ en attente`).join('<br>');
-      sub.innerHTML = `${lines}<br><br>Votre demande a bien été transmise à l'équipe GameZone.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong>.`;
+      sub.innerHTML = `${lines}<br><br>Votre demande a bien été <strong>enregistrée et transmise</strong> à l'équipe GameZone, dès maintenant.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong> — <strong>inutile de soumettre une nouvelle demande</strong> en attendant.`;
       notice.style.display = 'block';
       notice.textContent = getWaitingMessage(list[0] && list[0].reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
     } else if (list.length === 0) {
@@ -2116,6 +2116,40 @@
 
     const fd = new FormData(form);
 
+    // ── Détection de doublon : vérifie si une réservation CONFIRMÉE existe
+    // déjà pour ce numéro+date (pas juste soumise) ──
+    // Évite le scénario où un client, n'ayant pas encore reçu l'email de
+    // confirmation (délai de livraison variable) alors que sa réservation est
+    // déjà confirmée, croit que sa 1ère demande n'a pas été prise en compte
+    // et en resoumet une 2e — obligeant le staff à en refuser une et à
+    // rappeler le client pour le rassurer. Ne se déclenche QUE si la
+    // précédente est confirmée (pas si elle est encore en attente de
+    // validation manuelle) — une vraie 2e réservation distincte reste
+    // possible via le bouton "Continuer". Repose sur un nœud Firebase
+    // minimal (anti_doublon : numéro+date → {confirmed}) sans aucune autre
+    // donnée personnelle ; le statut "confirmed" est mis à jour plus bas
+    // dans cette même fonction, et par CalendIT lors d'une validation
+    // manuelle ultérieure.
+    const telDup  = getDigits(fd.get('telephone') || '');
+    const dateDup = fd.get('date') || '';
+    const dupKey  = (telDup && dateDup) ? `${telDup}_${dateDup}` : null;
+    if (dupKey) {
+      try {
+        const dupSnap = await db.ref(`anti_doublon/${dupKey}`).once('value');
+        if (dupSnap.exists() && dupSnap.val() && dupSnap.val().confirmed) {
+          const continuer = confirm(
+            `Vous avez déjà une réservation confirmée pour le ${dateDup} avec ce numéro de téléphone.\n\n` +
+            `Voulez-vous vraiment soumettre une nouvelle demande distincte pour cette même date ?`
+          );
+          if (!continuer) {
+            btn.textContent = '⚡ Envoyer la demande';
+            btn.disabled = false;
+            return;
+          }
+        }
+      } catch(e) { console.warn('Vérification doublon:', e); }
+    }
+
     // ── Créneaux à traiter (1 à 4 sessions) ──
     const nbSessions = parseInt(fd.get('nb_sessions')) || 1;
     const sessionCreneaux = [fd.get('creneau')];
@@ -2238,6 +2272,14 @@
         });
         await response.json();
       } catch {}
+    }
+
+    // Enregistre le statut réel de CETTE soumission pour la détection de
+    // doublon de la prochaine fois — "confirmed" uniquement si auto-validée
+    // (l'état sera mis à jour par CalendIT si une validation manuelle
+    // intervient ensuite).
+    if (dupKey) {
+      db.ref(`anti_doublon/${dupKey}`).set({ confirmed: allAuto, ts: Date.now() }).catch(()=>{});
     }
 
     showSuccess(pushResults, droppedSessions);
