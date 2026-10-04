@@ -510,9 +510,8 @@
             <label for="nb-sessions">Nombre de sessions</label>
             <select id="nb-sessions" name="nb_sessions" onchange="onNbSessionsChange()">
               <option value="1" selected>1 session</option>
-              <option value="2">2 sessions</option>
+              <option value="2" id="nb-sessions-opt2">2 sessions</option>
               <option value="3" id="nb-sessions-opt3">3 sessions</option>
-              <option value="4" id="nb-sessions-opt4" style="display:none;">Four Play</option>
             </select>
             <span class="date-hint" id="multi-session-hint" style="color:var(--neon-cyan);"></span>
           </div>
@@ -949,8 +948,23 @@
     return creneau.replace('h', ':');
   }
 
-  // Détecte l'offre spéciale (All Play / Just Play / Four Play) applicable,
-  // si activité Laser Game + jour (+ nombre de sessions pour Just/Four Play)
+  // Heure à partir de laquelle les offres du mardi/jeudi/vendredi (All Play,
+  // Just Play, Afterwork) s'appliquent : 17h20 en vacances/été (le site ouvre
+  // dès 14h, 17h20 étant le 1er créneau après 17h), 17h en période scolaire.
+  // Avant cet horaire, ce sont des sessions "normales" au tarif normal.
+  function offerStartMinutes(periode) {
+    return (periode === 'vacances' || periode === 'ete') ? 17 * 60 + 20 : 17 * 60;
+  }
+  // creneau : 'HHhMM' ou 'HH:MM' (1er créneau de la réservation)
+  function offerAppliesAt(dateStr, creneau) {
+    if (!dateStr || !creneau) return false;
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const [h, m] = creneauToTime(creneau).split(':').map(n => parseInt(n) || 0);
+    return (h * 60 + m) >= offerStartMinutes(getPeriode(new Date(y, mo - 1, d)));
+  }
+
+  // Détecte l'offre spéciale (All Play / Just Play / Afterwork) applicable,
+  // si activité Laser Game + jour (+ nombre de sessions pour Just Play/Afterwork)
   // correspondent. Durant les vacances scolaires (et l'été), le site ouvre
   // plus tôt (dès 14h) : ces offres n'y sont proposées qu'à partir de la
   // session de 17h20 — avant cet horaire, durant les vacances, le client
@@ -967,18 +981,16 @@
     const dateObj = new Date(dy, dmo - 1, dd);
     const dow = dateObj.getDay();
 
-    const periode = getPeriode(dateObj);
-    if (periode === 'vacances' || periode === 'ete') {
-      const time = creneauToTime(fd.get('creneau') || '');
-      const [h, m] = time.split(':').map(n => parseInt(n) || 0);
-      if ((h * 60 + m) < 17 * 60 + 20) return null;
-    }
+    // Les offres ne s'appliquent qu'à partir de 17h (17h20 en vacances/été,
+    // 1er créneau après 17h) — avant, sessions "normales" au tarif normal.
+    if (!offerAppliesAt(dateStr, fd.get('creneau'))) return null;
 
     // All Play (Mardi) : tarif au partie, quel que soit le nombre de sessions
     if (dow === 2) return 'All Play';
     const nbSessionsForNote = parseInt(fd.get('nb_sessions')) || 1;
     if (nbSessionsForNote === 3 && dow === 4) return 'Just Play';
-    if (nbSessionsForNote === 4 && dow === 5) return 'Four Play';
+    // Afterwork (Vendredi) : 2 parties + 1 boisson
+    if (nbSessionsForNote === 2 && dow === 5) return 'Afterwork';
     return null;
   }
 
@@ -987,7 +999,7 @@
     const parts = [];
     const activite = fd.get('activite') || '';
 
-    // Offre du jour (Just Play / Four Play), pour une visibilité claire côté staff
+    // Offre du jour (All Play / Just Play / Afterwork), pour une visibilité claire côté staff
     const offerLabelForComment = detectOfferLabel(fd);
     if (offerLabelForComment) parts.push(`🎯 Offre ${offerLabelForComment}`);
 
@@ -1450,10 +1462,10 @@
     if (activite === 'Forfait Anniversaire') {
       demande.forceType = isAnnivReducedPeriod(date) ? 't-anniv' : 't-anniv3';
     }
-    // Offre spéciale (All Play / Just Play / Four Play), pour affichage clair
+    // Offre spéciale (All Play / Just Play / Afterwork), pour affichage clair
     // dans l'email client ET pour colorer la réservation dans CalendIT comme
     // son équivalent créé manuellement par le staff (t-team/t-jeu3/t-vendredi).
-    const OFFER_FORCE_TYPE = { 'All Play': 't-team', 'Just Play': 't-jeu3', 'Four Play': 't-vendredi' };
+    const OFFER_FORCE_TYPE = { 'All Play': 't-team', 'Just Play': 't-jeu3', 'Afterwork': 't-vendredi' };
     const offerLabel = detectOfferLabel(fd);
     if (offerLabel) {
       demande.offerLabel = offerLabel;
@@ -2623,13 +2635,11 @@
     const show = (val === 'Laser Game' || val === 'VR Zone (action, arcade, zombies…)' || val === 'Blind Test Musical');
     document.getElementById('multi-session-block').style.display = show ? 'block' : 'none';
     if (!show) { resetMultiSessions(); return; }
-    // Seul le Laser Game propose 3 (Just Play) et 4 (Four Play) sessions —
+    // Seul le Laser Game propose 3 sessions (Just Play) —
     // VR Zone et Blind Test Musical sont plafonnés à 2 sessions.
     const opt3 = document.getElementById('nb-sessions-opt3');
-    const opt4 = document.getElementById('nb-sessions-opt4');
     const isLaser = (val === 'Laser Game');
     if (opt3) opt3.style.display = isLaser ? '' : 'none';
-    if (!isLaser && opt4) opt4.style.display = 'none';
     if (!isLaser && parseInt(document.getElementById('nb-sessions').value) > 2) {
       document.getElementById('nb-sessions').value = '2';
       onNbSessionsChange();
@@ -2766,6 +2776,7 @@
 
   // Appelé au changement de créneau : cascade multi-sessions + vérification dispo
   function onCreneauChange() {
+    refreshSessionOptions(); // l'offre dépend de l'heure du 1er créneau
     onSession1Change();
     refreshCreneauDispo();
   }
@@ -2788,10 +2799,10 @@
     const idx2 = currentCreneaux.indexOf(val2);
     if (idx2 === -1) return;
     populateSessionSelectAuto(document.getElementById('creneau3'), idx2 + sessionGapSteps());
-    if (n >= 4) onSession3Change(); // cascade automatique vers la session 4 (Four Play)
+    if (n >= 4) onSession3Change(); // cascade automatique vers la session 4 (non proposée actuellement)
   }
 
-  // Quand le créneau de la session 3 change → recalcule la session 4 (Four Play)
+  // Quand le créneau de la session 3 change → recalcule la session 4 (non proposée actuellement)
   function onSession3Change() {
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
     if (n < 4) return;
@@ -2803,12 +2814,12 @@
 
   // ══════════════════════════════════════════════
   //  OFFRES SPÉCIALES LASER GAME PAR JOUR
-  //  Mardi → All Play · Jeudi → Just Play · Vendredi → Four Play
+  //  Mardi → All Play · Jeudi → Just Play · Vendredi → Afterwork
   // ══════════════════════════════════════════════
   const LASER_DAY_OFFERS = {
     2: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>All Play</strong> — 7€/partie (${heureTxt}) !`,
     4: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Just Play</strong> — 17€ les 3 parties (${heureTxt}) !`,
-    5: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Four Play</strong> — 21€/pers., 4 parties, 4 pers. minimum (${heureTxt}) !`,
+    5: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Afterwork</strong> — 2 parties + 1 boisson : 18€/pers avec un soft ou 20€/pers avec une bière (${heureTxt}) !`,
   };
 
   function updateActiviteOfferHint() {
@@ -2818,7 +2829,7 @@
     if (activiteVal !== 'Laser Game' || !dateVal) {
       hint.style.display = 'none';
       hint.innerHTML = '';
-      updateSessionOptionLabels(null);
+      refreshSessionOptions();
       return;
     }
     const [y, mo, d] = dateVal.split('-').map(Number);
@@ -2837,28 +2848,45 @@
       hint.style.display = 'none';
       hint.innerHTML = '';
     }
-    updateSessionOptionLabels(dow);
+    refreshSessionOptions();
   }
 
-  // Adapte le menu "Nombre de sessions" selon le jour : Jeudi → "Just Play"
-  // (= 3 sessions) remplace "3 sessions", Vendredi → ajoute "Four Play"
-  // (= 4 sessions) sous "3 sessions".
-  function updateSessionOptionLabels(dow) {
+  // Adapte le menu "Nombre de sessions" selon le jour ET l'heure du 1er
+  // créneau (offerActive = l'offre du jour s'applique à ce créneau) :
+  // - Vendredi, offre active : "2 sessions" devient "Afterwork" (2 parties +
+  //   1 boisson), le choix "normal" disparaît.
+  // - Jeudi, offre active : le choix est 1 session ou "Just Play" (= 3
+  //   sessions : 2 sessions + la 3e offerte) ; "2 sessions" disparaît.
+  // - Avant l'heure d'application (créneaux de 14h en vacances) : sessions
+  //   normales, libellés classiques.
+  function updateSessionOptionLabels(dow, offerActive) {
+    const opt2 = document.getElementById('nb-sessions-opt2');
     const opt3 = document.getElementById('nb-sessions-opt3');
-    const opt4 = document.getElementById('nb-sessions-opt4');
-    if (!opt3 || !opt4) return;
-    opt3.textContent = (dow === 4) ? 'Just Play' : '3 sessions';
-    if (dow === 5) {
-      opt4.style.display = '';
-      opt4.textContent = 'Four Play';
-    } else {
-      opt4.style.display = 'none';
-      // Si "Four Play" était sélectionné et n'est plus proposé, on revient à 1 session
-      if (document.getElementById('nb-sessions').value === '4') {
-        document.getElementById('nb-sessions').value = '1';
-        onNbSessionsChange();
-      }
+    if (!opt2 || !opt3) return;
+    opt2.textContent = '2 sessions';
+    opt2.hidden = false; opt2.disabled = false;
+    opt3.textContent = '3 sessions';
+    if (offerActive && dow === 5) {
+      opt2.textContent = 'Afterwork (2 parties + 1 boisson)';
     }
+    if (offerActive && dow === 4) {
+      opt3.textContent = 'Just Play (2 sessions + 3ème offerte)';
+      opt2.hidden = true; opt2.disabled = true;
+      const sel = document.getElementById('nb-sessions');
+      if (sel.value === '2') { sel.value = '1'; onNbSessionsChange(); }
+    }
+  }
+
+  // Recalcule les libellés du menu à partir de la date, de l'activité et du
+  // 1er créneau choisi (à défaut, du 1er créneau disponible ce jour-là).
+  function refreshSessionOptions() {
+    const activiteVal = document.getElementById('activite').value;
+    const dateVal = document.getElementById('date').value;
+    if (activiteVal !== 'Laser Game' || !dateVal) { updateSessionOptionLabels(null, false); return; }
+    const [y, mo, d] = dateVal.split('-').map(Number);
+    const dow = new Date(y, mo - 1, d).getDay();
+    const crenVal = document.getElementById('creneau').value || currentCreneaux[0] || '';
+    updateSessionOptionLabels(dow, offerAppliesAt(dateVal, crenVal));
   }
 
   function getActiviteSlots(actKey, dateStr) {
@@ -2999,6 +3027,7 @@
         creneauSel.appendChild(opt);
       });
       if (isVrEscapeActivity()) annoterCreneauxVR(val, document.getElementById('activite').value);
+      refreshSessionOptions(); // currentCreneaux vient d'être reconstruit
     });
   })();
 
