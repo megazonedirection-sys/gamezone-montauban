@@ -2672,8 +2672,9 @@
   // 3 créneaux d'affilée, vérifiait alors la capacité sur des horaires hors
   // grille — donc toujours vides — au lieu des vrais 2e et 3e créneaux).
   function getVrSpanTimes(dateStr, timeStr, span) {
-    const isNew = dateStr >= NEW_SCHEDULE_DATE;
-    const activeVrSlots = isNew ? VR_SLOTS_NEW : VR_SLOTS_OLD; // minutes depuis minuit
+    const isNew2 = dateStr >= NEW2_SCHEDULE_DATE;
+    const isNew  = dateStr >= NEW_SCHEDULE_DATE;
+    const activeVrSlots = isNew2 ? VR_SLOTS_NEW2 : isNew ? VR_SLOTS_NEW : VR_SLOTS_OLD; // minutes depuis minuit
     const [h, m] = timeStr.split(':').map(Number);
     const startIdx = activeVrSlots.indexOf(h * 60 + m);
     const times = [timeStr];
