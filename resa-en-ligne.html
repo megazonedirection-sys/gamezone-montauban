@@ -499,6 +499,7 @@
           <span class="date-hint" id="creneau-hint" style="color:#ff8800;"></span>
           <span class="date-hint" id="creneau-dispo-hint" style="font-weight:700;"></span>
           <span class="field-error" id="err-creneau">Veuillez choisir un créneau disponible.</span>
+          <span class="field-error" id="err-anniv-preavis">🎂 Les forfaits anniversaire se réservent en ligne au moins 24h à l'avance (préparation de la table, des boissons…). Merci de choisir un créneau plus tardif, ou appelez-nous au 05.63.03.79.32.</span>
           <span class="field-error" id="err-creneau-fermeture">⛔ Ce créneau dépasse l'heure de fermeture — réservation impossible. Merci de choisir un horaire plus tôt.</span>
         </div>
       </div>
@@ -1122,13 +1123,19 @@
     intense:     'Adultes'
   };
 
-  // Labels exacts auto-confirmables (jamais anniversaire ni EVG)
+  // Labels exacts auto-confirmables. Le Forfait Anniversaire l'est désormais
+  // aussi : une demande directement possible (créneaux libres, places
+  // suffisantes, groupes compatibles, délai respecté) est confirmée tout de
+  // suite ; sinon l'ensemble des parties repart en validation manuelle
+  // ("tout ou rien"). Pour revenir à une validation toujours manuelle des
+  // anniversaires, il suffit de retirer 'Forfait Anniversaire' de cette liste.
   const AUTO_LABELS = [
     'Laser Game',
     'VR Zone (action, arcade, zombies…)',
     'Escape Game VR',
     'Blind Test Musical',
-    'EVG / EVJF'
+    'EVG / EVJF',
+    'Forfait Anniversaire'
   ];
 
   // Vérifie que la fin de la prestation ne dépasse pas l'heure de fermeture
@@ -1161,6 +1168,36 @@
     const isWeekendDay = (dc.getDay() === 6 || dc.getDay() === 0);
     const periode = getPeriode(dc);
     return isWeekendDay || periode === 'vacances' || periode === 'ete';
+  }
+
+  // Préavis minimum pour réserver un Forfait Anniversaire EN LIGNE : 24 h avant
+  // la 1ère partie (il faut prévoir la table, les boissons, etc.). En dessous,
+  // la réservation n'est pas possible en ligne — le client doit nous appeler.
+  const ANNIV_PREAVIS_HEURES = 24;
+  function annivTooSoon(dateStr, creneau) {
+    if (!dateStr || !creneau) return false;
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const [h, m] = creneauToTime(creneau).split(':').map(n => parseInt(n) || 0);
+    const debut = new Date(y, mo - 1, d, h, m, 0);
+    return (debut - Date.now()) < ANNIV_PREAVIS_HEURES * 3600 * 1000;
+  }
+
+  // Forfait Anniversaire : grise les créneaux qui démarrent dans moins de 24 h
+  // et l'explique, pour que le client ne choisisse pas un horaire refusé.
+  function annoterCreneauxAnniv(dateStr) {
+    const hint = document.getElementById('creneau-hint');
+    if (document.getElementById('activite').value !== 'Forfait Anniversaire') return;
+    const sel = document.getElementById('creneau');
+    let grises = 0;
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) return;
+      if (annivTooSoon(dateStr, opt.value)) {
+        opt.disabled = true;
+        opt.textContent = `${opt.value} — indisponible (préavis 24h)`;
+        grises++;
+      }
+    });
+    if (hint) hint.textContent = '🎂 Anniversaire : réservation en ligne possible au moins 24h à l\'avance (table et boissons à préparer).' + (grises ? ' Pour une date plus proche, appelez-nous au 05.63.03.79.32.' : '');
   }
 
   // Calcule les créneaux réels des parties d'un Forfait Anniversaire à partir
@@ -1234,6 +1271,11 @@
     // en priorité sur toute autre règle. Refus définitif, pas de repli manuel.
     if (!checkClosingTime(activiteLabel, date, time))
       return { auto: false, reason: 'depasse_fermeture', impossible: true };
+
+    // 0ter. Forfait Anniversaire : 24 h de préavis minimum en ligne (table,
+    // boissons à préparer) — refus définitif, pas de repli manuel.
+    if (activiteLabel === 'Forfait Anniversaire' && annivTooSoon(date, time))
+      return { auto: false, reason: 'anniv_preavis', impossible: true };
 
     // 0bis. Règle VR selon l'effectif du planning (relue au moment de l'envoi)
     if (activite === 'vr') {
@@ -1331,6 +1373,7 @@
       anniv_tout_ou_rien:          '🎂 L\'une des parties de votre forfait anniversaire est déjà occupée par un groupe incompatible — un agent va vérifier la meilleure organisation pour votre fête.',
       trop_proche:           '⏰ Réservation trop proche de l\'heure de début de session — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
+      anniv_preavis:         '⛔ Les forfaits anniversaire se réservent en ligne au moins 24h à l\'avance (préparation de la table, des boissons…). Pour une date plus proche, appelez-nous au 05.63.03.79.32.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
       ferme_ce_jour:         '⛔ Nous sommes fermés ce jour-là — réservation impossible.',
       ferme_exceptionnel:    '⛔ Nous sommes exceptionnellement fermés ce jour-là — réservation impossible.',
@@ -1621,7 +1664,21 @@
     document.getElementById('form-success').style.display = 'block';
   }
 
-  function showSuccess(results, droppedSessions) {
+  // emailDown : l'envoi d'emails est momentanément indisponible (quota EmailJS
+  // atteint, panne) — on n'annonce plus un email qui risque de ne pas arriver.
+  function showSuccess(results, droppedSessions, emailDown) {
+    const mailAuto = emailDown
+      ? 'Notre email de confirmation risque de ne pas vous parvenir : nous vous contacterons par téléphone si besoin — <strong>inutile de soumettre une nouvelle demande</strong>, votre place est déjà réservée.'
+      : 'Un email récapitulatif va vous être envoyé, mais il peut prendre quelques minutes à arriver — <strong>inutile de soumettre une nouvelle demande</strong>, votre place est déjà réservée.';
+    const mailAutoMulti = emailDown
+      ? 'Notre email de confirmation risque de ne pas vous parvenir : nous vous contacterons par téléphone si besoin — <strong>inutile de soumettre une nouvelle demande</strong>.'
+      : 'Un email récapitulatif va vous être envoyé, mais il peut prendre quelques minutes — <strong>inutile de soumettre une nouvelle demande</strong>.';
+    const mailPending = emailDown
+      ? 'Vous recevrez une réponse par <strong>téléphone</strong> très rapidement (l\'envoi d\'emails est momentanément indisponible) — <strong>inutile de soumettre une nouvelle demande</strong> en attendant.'
+      : 'Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong> — <strong>inutile de soumettre une nouvelle demande</strong> en attendant.';
+    const mailPartial = emailDown
+      ? 'nous vous contacterons par téléphone pour confirmer (l\'envoi d\'emails est momentanément indisponible).'
+      : 'un email récapitulatif va vous être envoyé.';
     const list    = Array.isArray(results) ? results : [results];
     const dropped = droppedSessions || [];
     const totalRequested = list.length + dropped.length;
@@ -1636,7 +1693,7 @@
       const isImpossible = list[0] && list[0].impossible;
       if (isAuto) {
         title.textContent  = '✅ Réservation confirmée !';
-        sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning, <strong>dès maintenant</strong>.<br>Un email récapitulatif va vous être envoyé, mais il peut prendre quelques minutes à arriver — <strong>inutile de soumettre une nouvelle demande</strong>, votre place est déjà réservée.';
+        sub.innerHTML      = 'Votre réservation est <strong>confirmée</strong> et enregistrée directement dans notre planning, <strong>dès maintenant</strong>.<br>' + mailAuto;
         notice.style.display = 'none';
       } else if (isImpossible) {
         title.textContent  = '⛔ Réservation impossible';
@@ -1647,7 +1704,7 @@
         notice.style.display = 'none';
       } else {
         title.textContent  = '⏳ Demande reçue !';
-        sub.innerHTML      = 'Votre demande a bien été <strong>enregistrée et transmise</strong> à l\'équipe GameZone, dès maintenant.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong> — <strong>inutile de soumettre une nouvelle demande</strong> en attendant.';
+        sub.innerHTML      = 'Votre demande a bien été <strong>enregistrée et transmise</strong> à l\'équipe GameZone, dès maintenant.<br>' + mailPending;
         notice.style.display = 'block';
         notice.textContent = getWaitingMessage(list[0] && list[0].reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
       }
@@ -1668,14 +1725,14 @@
       // Toutes les sessions demandées ont pu être confirmées
       title.textContent = '✅ Sessions confirmées !';
       const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ✅ confirmée`).join('<br>');
-      sub.innerHTML = `${lines}<br><br>Toutes vos sessions sont <strong>confirmées</strong> et enregistrées dans notre planning, dès maintenant. Un email récapitulatif va vous être envoyé, mais il peut prendre quelques minutes — <strong>inutile de soumettre une nouvelle demande</strong>.`;
+      sub.innerHTML = `${lines}<br><br>Toutes vos sessions sont <strong>confirmées</strong> et enregistrées dans notre planning, dès maintenant. ${mailAutoMulti}`;
       notice.style.display = 'none';
     } else if (dropped.length === 0 && !allConfirmed) {
       // Cas tout ou rien : toutes les sessions sont soumises ensemble en
       // validation manuelle, aucune n'est écartée ni confirmée séparément.
       title.textContent = '⏳ Demande reçue !';
       const lines = list.map((r, i) => `Session ${i + 1} (${r.demande.time}) : ⏳ en attente`).join('<br>');
-      sub.innerHTML = `${lines}<br><br>Votre demande a bien été <strong>enregistrée et transmise</strong> à l'équipe GameZone, dès maintenant.<br>Vous recevrez une réponse par email ou téléphone <strong>très rapidement</strong> — <strong>inutile de soumettre une nouvelle demande</strong> en attendant.`;
+      sub.innerHTML = `${lines}<br><br>Votre demande a bien été <strong>enregistrée et transmise</strong> à l'équipe GameZone, dès maintenant.<br>${mailPending}`;
       notice.style.display = 'block';
       notice.textContent = getWaitingMessage(list[0] && list[0].reason, '') + ' ⚠ Votre réservation sera effective uniquement après confirmation par GameZone.';
     } else if (list.length === 0) {
@@ -1692,7 +1749,7 @@
       const droppedLines   = dropped.map(c => `Session (${c.time}) : ❌ non disponible`).join('<br>');
       sub.innerHTML =
         `${confirmedLines}<br>${droppedLines}<br><br>` +
-        `Seules les sessions disponibles ont été <strong>confirmées et enregistrées</strong> dans notre planning — un email récapitulatif va vous être envoyé.<br>` +
+        `Seules les sessions disponibles ont été <strong>confirmées et enregistrées</strong> dans notre planning — ${mailPartial}<br>` +
         `Les sessions non disponibles n'ont <strong>pas</strong> été réservées : contactez-nous si vous souhaitez une solution alternative pour ces horaires.`;
       notice.style.display = 'block';
       notice.textContent = getWaitingMessage(dropped[0] && dropped[0].reason, '') + ' Ces sessions n\'ont pas été retenues automatiquement.';
@@ -2048,6 +2105,14 @@
     // (pas de repli vers une validation manuelle).
     const activiteVal = document.getElementById('activite').value;
     const dateVal = document.getElementById('date').value;
+    // Forfait Anniversaire : 24 h de préavis minimum en ligne
+    const errPreavis = document.getElementById('err-anniv-preavis');
+    if (activiteVal === 'Forfait Anniversaire' && creneau && dateVal && annivTooSoon(dateVal, creneau)) {
+      errPreavis.classList.add('visible');
+      valid = false;
+    } else if (errPreavis) {
+      errPreavis.classList.remove('visible');
+    }
     if (creneau && dateVal) {
       let lastTime = creneauToTime(creneau);
       if (nbSessions >= 2 && document.getElementById('creneau2').value) lastTime = creneauToTime(document.getElementById('creneau2').value);
@@ -2223,7 +2288,10 @@
       if (checks.length === sessionCreneaux.length) {
         const invalid = checks.filter(c => !c.auto);
         if (invalid.length > 0) {
-          if (fd.get('activite') === 'EVG / EVJF' || fd.get('activite') === 'Forfait Anniversaire') {
+          // Un refus définitif (fermeture, préavis anniversaire…) ne repart jamais
+          // en validation manuelle : on l'affiche tel quel.
+          const hasImpossible = invalid.some(c => c.impossible);
+          if (!hasImpossible && (fd.get('activite') === 'EVG / EVJF' || fd.get('activite') === 'Forfait Anniversaire')) {
             forceAllManual = true;
           } else {
             // Nouveau comportement : si au moins une session de la demande
@@ -2317,7 +2385,15 @@
       db.ref(`anti_doublon/${dupKey}`).set({ confirmed: allAuto, ts: Date.now() }).catch(()=>{});
     }
 
-    showSuccess(pushResults, droppedSessions);
+    // Quota EmailJS atteint (signalé par CalendIT) ou email staff non parti à
+    // l'instant : on adapte le message pour ne pas promettre un email.
+    let emailQuotaReached = false;
+    try {
+      const q = await db.ref('config/emailQuota').once('value');
+      emailQuotaReached = !!(q.val() && q.val().reached);
+    } catch(e) {}
+
+    showSuccess(pushResults, droppedSessions, emailQuotaReached || !staffEmailOk);
     return;
   }
 
@@ -3050,6 +3126,7 @@
         creneauSel.appendChild(opt);
       });
       if (isVrEscapeActivity()) annoterCreneauxVR(val, document.getElementById('activite').value);
+      annoterCreneauxAnniv(val);
       refreshSessionOptions(); // currentCreneaux vient d'être reconstruit
     });
   })();
