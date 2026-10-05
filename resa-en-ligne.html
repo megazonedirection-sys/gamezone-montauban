@@ -1277,6 +1277,38 @@
     if (activiteLabel === 'Forfait Anniversaire' && annivTooSoon(date, time))
       return { auto: false, reason: 'anniv_preavis', impossible: true };
 
+    // 0quater. Forfait Anniversaire : compatibilité d'âge avec les autres
+    // anniversaires déjà présents sur ce créneau (1ère session).
+    // Règle : âge de référence = plus jeune enfant fêté sur ce créneau.
+    // Auto si écart max 1 an entre le plus jeune et le plus vieux.
+    // Sans âge renseigné → validation manuelle.
+    if (activiteLabel === 'Forfait Anniversaire') {
+      const fdAge = new FormData(document.getElementById('resa-form'));
+      const monAge = parseInt(fdAge.get('anniv_age') || '');
+      if (!monAge || isNaN(monAge)) return { auto: false, reason: 'anniv_age_incompatible' };
+      try {
+        const demandesSnap = await db.ref('demandes').orderByChild('date').equalTo(date).once('value');
+        const agesPresents = [];
+        if (demandesSnap.exists()) {
+          Object.values(demandesSnap.val() || {}).forEach(d => {
+            if (d.activite === 'Forfait Anniversaire' && d.date === date &&
+                d.time === time && d.status !== 'refused') {
+              const a = parseInt(d.annivAge || '');
+              if (a && !isNaN(a)) agesPresents.push(a);
+            }
+          });
+        }
+        if (agesPresents.length > 0) {
+          const tousLesAges = [...agesPresents, monAge];
+          if (Math.max(...tousLesAges) - Math.min(...tousLesAges) > 1)
+            return { auto: false, reason: 'anniv_age_incompatible' };
+        }
+      } catch(e) {
+        console.warn('Vérification âge anniversaire:', e);
+        return { auto: false, reason: 'erreur_verification' };
+      }
+    }
+
     // 0bis. Règle VR selon l'effectif du planning (relue au moment de l'envoi)
     if (activite === 'vr') {
       const r = regleVR(await chargerContexteVR(date), activiteLabel, date, time);
@@ -1374,6 +1406,7 @@
       trop_proche:           '⏰ Réservation trop proche de l\'heure de début de session — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       anniv_preavis:         '⛔ Les forfaits anniversaire se réservent en ligne au moins 24h à l\'avance (préparation de la table, des boissons…). Pour une date plus proche, appelez-nous au 05.63.03.79.32.',
+      anniv_age_incompatible: '📋 Un autre anniversaire est déjà prévu sur ce créneau. Notre équipe va vérifier la meilleure organisation pour votre fête.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
       ferme_ce_jour:         '⛔ Nous sommes fermés ce jour-là — réservation impossible.',
       ferme_exceptionnel:    '⛔ Nous sommes exceptionnellement fermés ce jour-là — réservation impossible.',
