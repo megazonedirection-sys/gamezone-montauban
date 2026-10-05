@@ -1001,7 +1001,7 @@
 
     // Offre du jour (All Play / Just Play / Afterwork), pour une visibilité claire côté staff
     const offerLabelForComment = detectOfferLabel(fd);
-    if (offerLabelForComment) parts.push(`🎯 Offre ${offerLabelForComment}`);
+    if (offerLabelForComment) parts.push(`🎯 Offre ${offerLabelForComment}${offerLabelForComment === 'Afterwork' ? ' (2 parties + 1 boisson offerte)' : ''}`);
 
     // Répartition joueurs
     const laserE79 = fd.get('laser_enfants79'), laserE1012 = fd.get('laser_enfants1012'), laserAd13 = fd.get('laser_ados1315'), laserAd16 = fd.get('laser_ados1618'), laserA = fd.get('laser_adultes');
@@ -1565,22 +1565,35 @@
           ? `✅ Toutes les sessions ont été confirmées automatiquement dans CalendIT.\n`
           : `➡️ Rendez-vous dans CalendIT > Demandes pour valider ou refuser.\n`));
 
-    if (list.length === 0 && dropped.length === 0) return; // rien à notifier
+    if (list.length === 0 && dropped.length === 0) return true; // rien à notifier
 
-    await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        service_id:  'service_hk5x4ah',
-        template_id: 'template_y6gp8sg',
-        user_id:     'DsCuGiMtzFItllTJk',
-        template_params: {
-          to_email: 'contact@gamezone-montauban.com',
-          message:  message,
-          ref:      `${prenom} ${nom_val}`.trim()
-        }
-      })
-    });
+    // Renvoie true si EmailJS a bien accepté l'envoi, false sinon (quota
+    // atteint, service Gmail déconnecté, panne réseau…) — le formulaire
+    // déclenche alors la copie de secours FormSubmit.
+    try {
+      const resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service_id:  'service_hk5x4ah',
+          template_id: 'template_y6gp8sg',
+          user_id:     'DsCuGiMtzFItllTJk',
+          template_params: {
+            to_email: 'contact@gamezone-montauban.com',
+            message:  message,
+            ref:      `${prenom} ${nom_val}`.trim()
+          }
+        })
+      });
+      if (!resp.ok) {
+        console.warn('EmailJS staff refusé :', resp.status, await resp.text().catch(() => ''));
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.warn('EmailJS staff (réseau) :', e);
+      return false;
+    }
   }
   // Affiche le résultat quand une demande multi-sessions comporte au moins
   // une session non auto-validable : dans ce cas, RIEN n'est enregistré
@@ -2251,27 +2264,37 @@
     let pushResults = [];
     // Détermine si cette réservation nécessite une action du staff (au moins
     // une session en attente, ou une session écartée) — dans ce cas seulement,
-    // le staff est notifié par email (EmailJS + copie de secours FormSubmit).
-    // Une réservation 100% auto-confirmée reste consultable dans CalendIT
-    // ("Demandes") en cas de besoin, mais n'encombre plus la boîte mail.
+    // le staff est notifié par email via EmailJS. Une réservation 100%
+    // auto-confirmée reste consultable dans CalendIT ("Demandes") en cas de
+    // besoin, mais n'encombre plus la boîte mail.
+    // La copie FormSubmit n'est plus envoyée en doublon : uniquement en
+    // SECOURS, si l'enregistrement dans Firebase a échoué (la demande
+    // n'apparaîtrait pas dans CalendIT) ou si l'email EmailJS n'est pas parti
+    // (quota atteint, service déconnecté, panne).
     let needsStaffNotification = true;
+    let firebaseOk   = true;
+    let staffEmailOk = true;
     try {
       for (let i = 0; i < creneauxToSubmit.length; i++) {
         const groupInfo = groupId ? { groupId, index: i, total: creneauxToSubmit.length } : null;
         pushResults.push(await pushToCalendit(fd, creneauxToSubmit[i], groupInfo, forceAllManual));
       }
       needsStaffNotification = droppedSessions.length > 0 || !(pushResults.length > 0 && pushResults.every(r => r.autoValidated));
-      if (needsStaffNotification) await sendStaffEmail(fd, pushResults, droppedSessions);
-    } catch(e) { console.warn('Firebase/EmailJS:', e); }
+      if (needsStaffNotification) staffEmailOk = (await sendStaffEmail(fd, pushResults, droppedSessions)) !== false;
+    } catch(e) {
+      console.warn('Firebase/EmailJS:', e);
+      if (pushResults.length < creneauxToSubmit.length) firebaseOk = false;
+      else staffEmailOk = false;
+    }
 
     const allAuto = pushResults.length > 0 && pushResults.every(r => r.autoValidated);
 
-    // Formsubmit.co (copie mail backup) — même règle : uniquement si une
-    // action du staff est nécessaire.
-    if (needsStaffNotification) {
-      fd.append('_subject', allAuto
-        ? '✅ Réservation confirmée — GameZone Montauban'
-        : '⏳ Demande de réservation — GameZone Montauban');
+    // Formsubmit.co (copie mail de SECOURS) — uniquement si le staff aurait dû
+    // être notifié ET que l'enregistrement Firebase ou l'email EmailJS a échoué.
+    if (needsStaffNotification && (!firebaseOk || !staffEmailOk)) {
+      fd.append('_subject', !firebaseOk
+        ? '🚨 Demande NON enregistrée dans CalendIT — à traiter manuellement — GameZone Montauban'
+        : '⏳ Demande de réservation (copie de secours : email EmailJS non parti) — GameZone Montauban');
       fd.append('_language', 'fr');
       fd.append('_captcha', 'false');
       fd.append('_template', 'table');
@@ -2819,7 +2842,7 @@
   const LASER_DAY_OFFERS = {
     2: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>All Play</strong> — 7€/partie (${heureTxt}) !`,
     4: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Just Play</strong> — 17€ les 3 parties (${heureTxt}) !`,
-    5: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Afterwork</strong> — 2 parties + 1 boisson : 18€/pers avec un soft ou 20€/pers avec une bière (${heureTxt}) !`,
+    5: (heureTxt) => `⚡ Ce jour-là, profitez de l'offre <strong>Afterwork</strong> — 2 parties + 1 boisson offerte : 18€/pers avec un soft ou 20€/pers avec une bière (${heureTxt}) !`,
   };
 
   function updateActiviteOfferHint() {
@@ -2867,7 +2890,7 @@
     opt2.hidden = false; opt2.disabled = false;
     opt3.textContent = '3 sessions';
     if (offerActive && dow === 5) {
-      opt2.textContent = 'Afterwork (2 parties + 1 boisson)';
+      opt2.textContent = 'Afterwork (2 parties + 1 boisson offerte)';
     }
     if (offerActive && dow === 4) {
       opt3.textContent = 'Just Play (2 sessions + 3ème offerte)';
