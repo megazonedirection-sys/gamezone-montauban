@@ -2697,6 +2697,28 @@
   const VR_SLOTS_OLD = makeVrSlots(ALL_SLOTS_OLD);
   const VR_SLOTS_NEW = makeVrSlots(ALL_SLOTS_NEW);
 
+  // ── Nouveau planning 02/11/2026 : 3×20 min + 5 min de nettoyage (65 min par bloc) ──
+  const NEW2_SCHEDULE_DATE = '2026-11-02';
+  function buildSlotsNew2() {
+    const slots = [];
+    for (let h = 10; h < 14; h++) {
+      for (let m = 0; m <= 40; m += 20) slots.push(h * 60 + m);
+    }
+    let t = 14 * 60;
+    while (true) {
+      for (let i = 0; i < 3; i++) {
+        const min = t + i * 20;
+        if (min > 21 * 60 + 55) break;
+        slots.push(min);
+      }
+      t += 65;
+      if (t > 21 * 60 + 55) break;
+    }
+    return slots;
+  }
+  const ALL_SLOTS_NEW2 = buildSlotsNew2();
+  const VR_SLOTS_NEW2  = makeVrSlots(ALL_SLOTS_NEW2);
+
   // Renvoie les `span` créneaux VR consécutifs (en "HH:MM") à partir de
   // `timeStr`, en marchant sur les index de la vraie grille horaire (ancien
   // planning 20 min / nouveau planning 25 min à partir du 01/09/2026) —
@@ -3023,10 +3045,11 @@
   }
 
   function getActiviteSlots(actKey, dateStr) {
-    const isNew = dateStr >= NEW_SCHEDULE_DATE;
+    const isNew2 = dateStr >= NEW2_SCHEDULE_DATE;
+    const isNew  = dateStr >= NEW_SCHEDULE_DATE;
     if (actKey === 'bt') return BT_SLOTS;
-    if (actKey === 'vr') return isNew ? VR_SLOTS_NEW : VR_SLOTS_OLD;
-    return isNew ? ALL_SLOTS_NEW : ALL_SLOTS_OLD; // laser
+    if (actKey === 'vr') return isNew2 ? VR_SLOTS_NEW2 : isNew ? VR_SLOTS_NEW : VR_SLOTS_OLD;
+    return isNew2 ? ALL_SLOTS_NEW2 : isNew ? ALL_SLOTS_NEW : ALL_SLOTS_OLD; // laser
   }
 
   function genCreneaux(info, minTimeOverride, actKey, dateStr) {
