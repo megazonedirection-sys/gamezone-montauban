@@ -2869,15 +2869,51 @@
     else { document.getElementById('creneau2').value=''; document.getElementById('creneau3').value=''; document.getElementById('creneau4').value=''; }
   }
 
-  // Petit texte explicatif selon l'activité (bloqué auto pour Laser, libre pour VR)
+  // Petit texte explicatif selon l'activité et l'offre du jour
   function updateMultiSessionHint() {
     const hint = document.getElementById('multi-session-hint');
     const n = parseInt(document.getElementById('nb-sessions').value) || 1;
-    if (n < 2) { hint.textContent = ''; return; }
-    const isLaser = document.getElementById('activite').value === 'Laser Game';
-    hint.textContent = isLaser
-      ? 'Les créneaux suivants sont réservés automatiquement, avec une pause d\'un créneau entre chaque partie.'
-      : 'Les créneaux suivants sont réservés automatiquement, directement à la suite (aucune pause requise).';
+    if (n < 2) { hint.textContent = ''; hint.style.color = ''; return; }
+    const activiteVal = document.getElementById('activite').value;
+    const isLaser = activiteVal === 'Laser Game';
+    if (!isLaser) {
+      hint.textContent = 'Les créneaux suivants sont réservés automatiquement, directement à la suite (aucune pause requise).';
+      hint.style.color = '';
+      return;
+    }
+    // Laser Game : message selon l'offre du jour
+    const dateVal = document.getElementById('date').value;
+    const crenVal = document.getElementById('creneau').value || '';
+    if (dateVal) {
+      const [y, mo, d] = dateVal.split('-').map(Number);
+      const dow = new Date(y, mo - 1, d).getDay();
+      const [ch, cm] = creneauToTime(crenVal).split(':').map(v => parseInt(v) || 0);
+      const slotMin = ch * 60 + cm;
+      if (dow === 6 && isVieChereDate(dateVal) && slotMin >= VIE_CHERE_START_MIN && n === 2) {
+        hint.textContent = 'La Vie Chère ? Tous les samedis d\'octobre à partir de 19h : 2 parties pour 15€/pers !';
+        hint.style.color = '#be123c';
+        return;
+      }
+      if (offerAppliesAt(dateVal, crenVal)) {
+        if (dow === 5 && n === 2) {
+          hint.textContent = 'Dès 17h, l\'offre Afterwork comprend 2 parties + 1 boisson : soft 18€/pers ou bière 20€/pers.';
+          hint.style.color = '#a16207';
+          return;
+        }
+        if (dow === 4 && n === 3) {
+          hint.textContent = 'Dès 17h, profitez de la 3ème partie offerte !';
+          hint.style.color = '#0f766e';
+          return;
+        }
+        if (dow === 2) {
+          hint.textContent = 'La partie à 7€/pers dès 17h !';
+          hint.style.color = '#6d28d9';
+          return;
+        }
+      }
+    }
+    hint.textContent = 'Les créneaux suivants sont réservés automatiquement, avec une pause d\'un créneau entre chaque partie.';
+    hint.style.color = '';
   }
 
   // Quand le créneau de la session 1 change → recalcule la session 2
