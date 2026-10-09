@@ -949,6 +949,17 @@
     return creneau.replace('h', ':');
   }
 
+  // ── Offre Vie Chère : samedis du 10/10 au 31/10/2026, dès 19h ──────────────
+  const VIE_CHERE_START     = '2026-10-10';
+  const VIE_CHERE_END       = '2026-10-31';
+  const VIE_CHERE_START_MIN = 19 * 60; // 19h00
+
+  function isVieChereDate(dateStr) {
+    if (!dateStr || dateStr < VIE_CHERE_START || dateStr > VIE_CHERE_END) return false;
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    return new Date(y, mo - 1, d).getDay() === 6; // samedi
+  }
+
   // Heure à partir de laquelle les offres du mardi/jeudi/vendredi (All Play,
   // Just Play, Afterwork) s'appliquent : 17h20 en vacances/été (le site ouvre
   // dès 14h, 17h20 étant le 1er créneau après 17h), 17h en période scolaire.
@@ -964,14 +975,8 @@
     return (h * 60 + m) >= offerStartMinutes(getPeriode(new Date(y, mo - 1, d)));
   }
 
-  // Détecte l'offre spéciale (All Play / Just Play / Afterwork) applicable,
-  // si activité Laser Game + jour (+ nombre de sessions pour Just Play/Afterwork)
-  // correspondent. Durant les vacances scolaires (et l'été), le site ouvre
-  // plus tôt (dès 14h) : ces offres n'y sont proposées qu'à partir de la
-  // session de 17h20 — avant cet horaire, durant les vacances, le client
-  // réserve des sessions "classiques" au tarif normal, sans offre. Hors
-  // vacances, l'ouverture est déjà proche de 17h, donc aucune restriction
-  // d'horaire supplémentaire n'est nécessaire.
+  // Détecte l'offre spéciale applicable (All Play / Just Play / Afterwork /
+  // Vie Chère) selon activité, jour, date et heure du 1er créneau.
   // Retourne null si aucune offre ne s'applique.
   function detectOfferLabel(fd) {
     const activite = fd.get('activite') || '';
@@ -981,10 +986,19 @@
     const [dy, dmo, dd] = dateStr.split('-').map(Number);
     const dateObj = new Date(dy, dmo - 1, dd);
     const dow = dateObj.getDay();
+    const creneau = fd.get('creneau') || '';
+    const [ch, cm] = creneauToTime(creneau).split(':').map(n => parseInt(n) || 0);
+    const slotMin = ch * 60 + cm;
 
-    // Les offres ne s'appliquent qu'à partir de 17h (17h20 en vacances/été,
-    // 1er créneau après 17h) — avant, sessions "normales" au tarif normal.
-    if (!offerAppliesAt(dateStr, fd.get('creneau'))) return null;
+    // ── Vie Chère (Samedi, 10/10–31/10, dès 19h) ────────────────────────────
+    if (dow === 6 && isVieChereDate(dateStr)) {
+      if (slotMin >= VIE_CHERE_START_MIN) return 'Vie Chère';
+      return null; // samedi Vie Chère mais avant 19h → pas d'offre
+    }
+
+    // Les offres Ma/Je/Ve ne s'appliquent qu'à partir de 17h (17h20 en
+    // vacances/été) — avant, sessions "normales" au tarif normal.
+    if (!offerAppliesAt(dateStr, creneau)) return null;
 
     // All Play (Mardi) : tarif au partie, quel que soit le nombre de sessions
     if (dow === 2) return 'All Play';
@@ -1002,7 +1016,12 @@
 
     // Offre du jour (All Play / Just Play / Afterwork), pour une visibilité claire côté staff
     const offerLabelForComment = detectOfferLabel(fd);
-    if (offerLabelForComment) parts.push(`🎯 Offre ${offerLabelForComment}${offerLabelForComment === 'Afterwork' ? ' (2 parties + 1 boisson offerte)' : ''}`);
+    if (offerLabelForComment) {
+      const offerDetail = offerLabelForComment === 'Afterwork'  ? ' (2 parties + 1 boisson offerte)'
+                        : offerLabelForComment === 'Vie Chère'  ? ' (tarif réduit dès 19h)'
+                        : '';
+      parts.push(`🎯 Offre ${offerLabelForComment}${offerDetail}`);
+    }
 
     // Répartition joueurs
     const laserE79 = fd.get('laser_enfants79'), laserE1012 = fd.get('laser_enfants1012'), laserAd13 = fd.get('laser_ados1315'), laserAd16 = fd.get('laser_ados1618'), laserA = fd.get('laser_adultes');
@@ -1541,7 +1560,7 @@
     // Offre spéciale (All Play / Just Play / Afterwork), pour affichage clair
     // dans l'email client ET pour colorer la réservation dans CalendIT comme
     // son équivalent créé manuellement par le staff (t-team/t-jeu3/t-vendredi).
-    const OFFER_FORCE_TYPE = { 'All Play': 't-team', 'Just Play': 't-jeu3', 'Afterwork': 't-vendredi' };
+    const OFFER_FORCE_TYPE = { 'All Play': 't-team', 'Just Play': 't-jeu3', 'Afterwork': 't-vendredi', 'Vie Chère': 't-viechere' };
     const offerLabel = detectOfferLabel(fd);
     if (offerLabel) {
       demande.offerLabel = offerLabel;
@@ -2990,6 +3009,15 @@
     const [y, mo, d] = dateVal.split('-').map(Number);
     const dateObj = new Date(y, mo - 1, d);
     const dow = dateObj.getDay();
+
+    // ── Offre Vie Chère (samedi 10/10–31/10, dès 19h) ──────────────────────
+    if (dow === 6 && isVieChereDate(dateVal)) {
+      hint.innerHTML = `🎁 Ce samedi, bénéficiez de l'offre <strong>Vie Chère</strong> — tarif réduit dès 19h pour tout le monde !`;
+      hint.style.display = 'block';
+      refreshSessionOptions();
+      return;
+    }
+
     if (LASER_DAY_OFFERS[dow]) {
       // Durant les vacances scolaires (et l'été), le site ouvre dès 14h mais
       // les offres ne démarrent qu'à partir de 17h20 (sessions classiques
