@@ -990,10 +990,11 @@
     const [ch, cm] = creneauToTime(creneau).split(':').map(n => parseInt(n) || 0);
     const slotMin = ch * 60 + cm;
 
-    // ── Vie Chère (Samedi, 10/10–31/10, dès 19h) ────────────────────────────
+    // ── Vie Chère (Samedi, 10/10–31/10, dès 19h, 2 sessions) ───────────────
     if (dow === 6 && isVieChereDate(dateStr)) {
-      if (slotMin >= VIE_CHERE_START_MIN) return 'Vie Chère';
-      return null; // samedi Vie Chère mais avant 19h → pas d'offre
+      const nb = parseInt(fd.get('nb_sessions')) || 1;
+      if (slotMin >= VIE_CHERE_START_MIN && nb === 2) return 'Vie Chère';
+      return null; // avant 19h ou pas 2 sessions → pas d'offre
     }
 
     // Les offres Ma/Je/Ve ne s'appliquent qu'à partir de 17h (17h20 en
@@ -3036,19 +3037,31 @@
 
   // Adapte le menu "Nombre de sessions" selon le jour ET l'heure du 1er
   // créneau (offerActive = l'offre du jour s'applique à ce créneau) :
+  // - Samedi Vie Chère dès 19h : le choix reste libre (1, 2 ou 3 sessions) ;
+  //   choisir 2 sessions = offre Vie Chère appliquée automatiquement.
+  //   L'option 2 est juste renommée pour l'indiquer au client.
   // - Vendredi, offre active : "2 sessions" devient "Afterwork" (2 parties +
   //   1 boisson), le choix "normal" disparaît.
   // - Jeudi, offre active : le choix est 1 session ou "Just Play" (= 3
   //   sessions : 2 sessions + la 3e offerte) ; "2 sessions" disparaît.
   // - Avant l'heure d'application (créneaux de 14h en vacances) : sessions
   //   normales, libellés classiques.
-  function updateSessionOptionLabels(dow, offerActive) {
+  function updateSessionOptionLabels(dow, offerActive, dateStr) {
     const opt2 = document.getElementById('nb-sessions-opt2');
     const opt3 = document.getElementById('nb-sessions-opt3');
     if (!opt2 || !opt3) return;
+    // Réinitialisation
     opt2.textContent = '2 sessions';
     opt2.hidden = false; opt2.disabled = false;
     opt3.textContent = '3 sessions';
+    opt3.hidden = false; opt3.disabled = false;
+
+    // ── Samedi Vie Chère dès 19h : 2 sessions = offre Vie Chère ─────────────
+    if (dow === 6 && dateStr && isVieChereDate(dateStr) && offerActive) {
+      opt2.textContent = 'Vie Chère (2 sessions — tarif réduit)';
+      return; // options 1 et 3 restent disponibles
+    }
+
     if (offerActive && dow === 5) {
       opt2.textContent = 'Afterwork (2 parties + 1 boisson offerte)';
     }
@@ -3065,11 +3078,17 @@
   function refreshSessionOptions() {
     const activiteVal = document.getElementById('activite').value;
     const dateVal = document.getElementById('date').value;
-    if (activiteVal !== 'Laser Game' || !dateVal) { updateSessionOptionLabels(null, false); return; }
+    if (activiteVal !== 'Laser Game' || !dateVal) { updateSessionOptionLabels(null, false, null); return; }
     const [y, mo, d] = dateVal.split('-').map(Number);
     const dow = new Date(y, mo - 1, d).getDay();
     const crenVal = document.getElementById('creneau').value || currentCreneaux[0] || '';
-    updateSessionOptionLabels(dow, offerAppliesAt(dateVal, crenVal));
+    // Pour Vie Chère : offerActive = créneau ≥ 19h ; pour les autres offres : ≥ 17h/17h20
+    const vcActive = dow === 6 && isVieChereDate(dateVal) && (() => {
+      const [ch, cm] = creneauToTime(crenVal).split(':').map(n => parseInt(n) || 0);
+      return (ch * 60 + cm) >= VIE_CHERE_START_MIN;
+    })();
+    const offerActive = vcActive || offerAppliesAt(dateVal, crenVal);
+    updateSessionOptionLabels(dow, offerActive, dateVal);
   }
 
   function getActiviteSlots(actKey, dateStr) {
