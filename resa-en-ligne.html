@@ -1094,8 +1094,8 @@
   // que la fin de la prestation ne dépasse pas l'heure de fermeture.
   const SESSION_DURATION_MIN = {
     'Laser Game': 20,
-    'VR Zone (action, arcade, zombies…)': 20,
-    'Escape Game VR': 60,
+    'VR Zone (action, arcade, zombies…)': 30, // briefing + jeu
+    'Escape Game VR': 70,                     // briefing + jeu (1h10)
     'Blind Test Musical': 30,
     'Forfait Anniversaire': 150, // 2h00 ou 2h30 → on retient la durée la plus longue par sécurité
     'EVG / EVJF': 80,            // 1h20 sur place
@@ -3135,14 +3135,19 @@
     return isNew2 ? ALL_SLOTS_NEW2 : isNew ? ALL_SLOTS_NEW : ALL_SLOTS_OLD; // laser
   }
 
-  function genCreneaux(info, minTimeOverride, actKey, dateStr) {
+  function genCreneaux(info, minTimeOverride, actKey, dateStr, activiteLabel) {
     const ouv  = Math.max(info.ouverture * 60 + (info.ouvertureMin || 0), minTimeOverride || 0);
     const ferm = info.fermeture * 60 + (info.fermetureMin || 0);
     const fmt  = m => `${String(Math.floor(m/60)).padStart(2,'0')}h${String(m%60).padStart(2,'0')}`;
     const SLOT_18H55 = 18 * 60 + 55;
     const baseSlots = getActiviteSlots(actKey || 'laser', dateStr);
+    // VR Zone / Escape Game VR : seuls les départs qui se terminent avant la
+    // fermeture sont proposés (briefing compris : 30 min et 1h10).
+    const dureeVR = (activiteLabel === 'VR Zone (action, arcade, zombies…)' || activiteLabel === 'Escape Game VR')
+      ? SESSION_DURATION_MIN[activiteLabel] : 0;
     return baseSlots
       .filter(t => t >= ouv && t < ferm)
+      .filter(t => !dureeVR || t + dureeVR <= ferm)
       .filter(t => !(info.fermeture === 19 && t === SLOT_18H55))
       .map(t => fmt(t));
   }
@@ -3253,7 +3258,7 @@
       const minTimeOverride = (isVrEscapeActivity() && isWeekend) ? 14 * 60 : 0;
       const actKey = mapActiviteToCalendit(document.getElementById('activite').value || 'Laser Game');
 
-      const creneaux = genCreneaux(info, minTimeOverride, actKey, val);
+      const creneaux = genCreneaux(info, minTimeOverride, actKey, val, document.getElementById('activite').value);
       currentCreneaux = creneaux;
       const weekendNote = (isVrEscapeActivity() && isWeekend) ? ' · VR/Escape dès 14h' : '';
       const ph = document.createElement('option');
