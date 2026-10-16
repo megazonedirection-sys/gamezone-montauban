@@ -667,7 +667,7 @@
 
       <!-- CHAMPS BLIND TEST -->
       <div id="blind-fields" class="special-block" style="border-color:rgba(255,45,107,0.25);background:rgba(255,45,107,0.03);">
-        <div class="special-block-title" style="color:var(--neon-pink);">🎵 Répartition des joueurs (min 4 · max 24)</div>
+        <div class="special-block-title" style="color:var(--neon-pink);">🎵 Répartition des joueurs (min 4 · max 12)</div>
         <div class="form-row" style="grid-template-columns:1fr 1fr 1fr;">
           <div class="form-group">
             <label for="blind-adultes">Adultes *</label>
@@ -685,7 +685,7 @@
         <div style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:rgba(255,45,107,0.06);border:1px solid rgba(255,45,107,0.15);margin-top:0.25rem;">
           <span style="font-family:'Orbitron',monospace;font-size:0.6rem;letter-spacing:2px;color:rgba(255,255,255,0.4);text-transform:uppercase;">Total</span>
           <span id="blind-total" style="font-family:'Orbitron',monospace;font-size:1.1rem;font-weight:900;color:var(--neon-pink);text-shadow:0 0 8px rgba(255,45,107,0.5);">0</span>
-          <span style="font-size:0.8rem;color:var(--text-muted);">/ 24 joueurs · minimum 4</span>
+          <span style="font-size:0.8rem;color:var(--text-muted);">/ 12 joueurs · minimum 4</span>
         </div>
         <span class="field-error" id="err-blind-total" style="margin-top:0.5rem;">La somme ne peut pas dépasser 12 joueurs.</span>
         <span class="field-error" id="err-blind-min" style="margin-top:0.5rem;">Minimum 4 joueurs requis pour le Blind Test.</span>
@@ -950,7 +950,7 @@
   }
 
   // ── Offre Vie Chère : samedis du 10/10 au 31/10/2026, dès 19h ──────────────
-  const VIE_CHERE_START     = '2026-10-03';
+  const VIE_CHERE_START     = '2026-10-10';
   const VIE_CHERE_END       = '2026-10-31';
   const VIE_CHERE_START_MIN = 19 * 60; // 19h00
 
@@ -1307,17 +1307,17 @@
       const monAge = parseInt(fdAge.get('anniv_age') || '');
       if (!monAge || isNaN(monAge)) return { auto: false, reason: 'anniv_age_incompatible' };
       try {
-        const demandesSnap = await db.ref('demandes').orderByChild('date').equalTo(date).once('value');
+        // Lecture du résumé public anniv_ages/{date} : uniquement l'heure et
+        // l'âge de l'enfant fêté, AUCUNE donnée client (nom, téléphone, email).
+        // Avant, le formulaire téléchargeait toutes les demandes du jour.
+        const agesSnap = await db.ref(`anniv_ages/${date}`).once('value');
         const agesPresents = [];
-        if (demandesSnap.exists()) {
-          Object.values(demandesSnap.val() || {}).forEach(d => {
-            if (d.activite === 'Forfait Anniversaire' && d.date === date &&
-                d.time === time && d.status !== 'refused') {
-              const a = parseInt(d.annivAge || '');
-              if (a && !isNaN(a)) agesPresents.push(a);
-            }
-          });
-        }
+        Object.values(agesSnap.val() || {}).forEach(e => {
+          if (e && e.t === time) {
+            const a = parseInt(e.a);
+            if (a && !isNaN(a)) agesPresents.push(a);
+          }
+        });
         if (agesPresents.length > 0) {
           const tousLesAges = [...agesPresents, monAge];
           if (Math.max(...tousLesAges) - Math.min(...tousLesAges) > 1)
@@ -1576,6 +1576,18 @@
     }
 
     const ref = await db.ref('demandes').push(demande);
+
+    // Forfait Anniversaire : publie l'âge de l'enfant pour ce créneau dans le
+    // résumé public anniv_ages (sans nom ni coordonnées), utilisé par le
+    // contrôle d'âge des réservations suivantes. Retiré par CalendIT en cas
+    // de refus ou de suppression de la demande.
+    if (activite === 'Forfait Anniversaire') {
+      const age = parseInt(demande.annivAge);
+      if (age && !isNaN(age)) {
+        await db.ref(`anniv_ages/${date}/${ref.key}`).set({ t: time, a: age })
+          .catch(e => console.warn('Résumé âges anniversaire :', e));
+      }
+    }
 
     // Mise à jour optimiste IMMÉDIATE de dispo/dispo_profil (sans attendre que
     // CalendIT traite la demande, ce qui peut prendre quelques secondes) —
@@ -2276,10 +2288,12 @@
     const telDup  = getDigits(fd.get('telephone') || '');
     const dateDup = fd.get('date') || '';
     const dupKey  = (telDup && dateDup) ? `${telDup}_${dateDup}` : null;
+    let dejaConfirme = false;
     if (dupKey) {
       try {
         const dupSnap = await db.ref(`anti_doublon/${dupKey}`).once('value');
         if (dupSnap.exists() && dupSnap.val() && dupSnap.val().confirmed) {
+          dejaConfirme = true;
           const continuer = confirm(
             `Vous avez déjà une réservation confirmée pour le ${dateDup} avec ce numéro de téléphone.\n\n` +
             `Voulez-vous vraiment soumettre une nouvelle demande distincte pour cette même date ?`
@@ -2435,7 +2449,8 @@
     // (l'état sera mis à jour par CalendIT si une validation manuelle
     // intervient ensuite).
     if (dupKey) {
-      db.ref(`anti_doublon/${dupKey}`).set({ confirmed: allAuto, ts: Date.now() }).catch(()=>{});
+      // Une 2e demande en attente ne doit pas effacer le « confirmé » de la 1re
+      db.ref(`anti_doublon/${dupKey}`).set({ confirmed: allAuto || dejaConfirme, ts: Date.now() }).catch(()=>{});
     }
 
     // Quota EmailJS atteint (signalé par CalendIT) ou email staff non parti à
