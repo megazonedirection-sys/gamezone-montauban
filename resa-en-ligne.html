@@ -1076,6 +1076,13 @@
   // ══════════════════════════════════════════════
   const MAX_CAP = { laser: 24, vr: 4, bt: 12 };
 
+  // Seuil « Groupe » : à partir de ce nombre de joueurs AU TOTAL (enfants +
+  // ados + adultes, toutes tranches d'âge confondues), une réservation Laser
+  // Game est classée « Groupe » dans CalendIT au lieu de « Particulier ».
+  // Même valeur que le minimum du type Groupe dans calendrier.html
+  // (MIN_PERS_BY_TYPE['t-groupe'] = 12) : à garder identique dans les deux fichiers.
+  const GROUPE_MIN_PERS = 12;
+
   // Nombre réel de gilets laser actuellement disponibles, modifiable par le
   // staff dans CalendIT (ex: un gilet en réparation) — partagé via Firebase
   // (config/maxVests) pour que le formulaire public respecte toujours la
@@ -1511,6 +1518,18 @@
       return { demande: null, autoValidated: false, reason: check.reason, impossible: true };
     }
 
+    // Type « Groupe » : se décide sur le TOTAL des joueurs, toutes tranches
+    // d'âge additionnées (enfants + ados + adultes), et non sur une seule
+    // tranche. Avant, le formulaire envoyait toujours « Particulier », même
+    // pour 20 joueurs. Laser Game uniquement (CalendIT n'a pas de type
+    // Groupe en VR ni en Blind Test). Les formules qui ont leur propre type
+    // (anniversaire, EVG/EVJF, offres du jour) le gardent : CalendIT
+    // utilise en priorité forceType, défini plus bas.
+    const totalJoueurs = ageBreakdown
+      ? (ageBreakdown.enfants79 + ageBreakdown.enfants1012 + ageBreakdown.ados1315 + ageBreakdown.ados1618 + ageBreakdown.adultes) || pers
+      : pers;
+    const typeBase = (actKey === 'laser' && totalJoueurs >= GROUPE_MIN_PERS) ? 't-groupe' : 't-particulier';
+
     const demande = {
       nom:           `${prenom} ${nom_val}`.trim(),
       mail:          email,
@@ -1520,7 +1539,7 @@
       date:          date,
       time:          time,
       pers:          pers,
-      type:          't-particulier',
+      type:          typeBase,
       comment:       buildComment(fd),
       status:        check.auto ? 'auto-confirmed' : 'pending',
       direct:        check.auto,
