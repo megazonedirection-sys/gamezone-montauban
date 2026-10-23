@@ -1449,6 +1449,11 @@
           if (i === 0) usedPers = used;
           if (used + pers > max)
             return { auto: false, reason: 'capacite_insuffisante', available: max - used };
+          // Laser Game (23/10/2026) : il faut être au moins 2 pour jouer. Un
+          // joueur seul sur une partie où personne n'est encore inscrit n'est
+          // jamais confirmé automatiquement → validation manuelle.
+          if (activiteLabel === 'Laser Game' && used === 0 && pers < 2)
+            return { auto: false, reason: 'joueur_seul' };
         }
       }
     } catch(e) {
@@ -1469,6 +1474,7 @@
       trop_proche:           '⏰ Réservation trop proche de l\'heure de début de session — un agent va confirmer rapidement.',
       depasse_fermeture:     '⛔ Ce créneau dépasse l\'heure de fermeture — réservation impossible sur cet horaire.',
       anniv_preavis:         '⛔ Les forfaits anniversaire se réservent en ligne au moins 24h à l\'avance (préparation de la table, des boissons…). Pour une date plus proche, appelez-nous au 05.63.03.79.32.',
+      joueur_seul:           '👥 Il faut être au moins 2 joueurs pour lancer une partie : notre équipe vérifie si d\'autres joueurs sont prévus sur ce créneau et vous recontacte très rapidement.',
       anniv_composition:     '🎂 Un groupe déjà prévu sur ce créneau n\'a pas exactement les mêmes âges que le vôtre — notre équipe vérifie la meilleure organisation pour votre partie.',
       anniv_age_incompatible: '📋 Un autre anniversaire est déjà prévu sur ce créneau. Notre équipe va vérifier la meilleure organisation pour votre fête.',
       conges_annuels:        '⛔ Fermeture pour congés annuels à cette date — réservation impossible.',
@@ -1526,7 +1532,7 @@
   async function checkSessionAvailability(fd, creneau) {
     const ctx = extractSessionContext(fd, creneau);
     const check = await checkAutoValidation(ctx.actKey, ctx.activite, ctx.date, ctx.time, ctx.pers, ctx.ageBreakdown);
-    return { ...ctx, auto: check.auto, reason: check.reason };
+    return { ...ctx, auto: check.auto, reason: check.reason, impossible: !!check.impossible };
   }
 
   async function pushToCalendit(fd, creneauOverride, groupInfo, forceManual) {
@@ -1545,8 +1551,9 @@
     // une des parties du forfait n'était pas compatible, donc toutes
     // repartent en validation manuelle ensemble, sans même re-vérifier
     // celle-ci individuellement.
+    // forceManual peut aussi contenir directement le motif (ex: 'joueur_seul').
     const check = forceManual
-      ? { auto: false, reason: activite === 'Forfait Anniversaire' ? 'anniv_tout_ou_rien' : 'evg_tout_ou_rien' }
+      ? { auto: false, reason: typeof forceManual === 'string' ? forceManual : (activite === 'Forfait Anniversaire' ? 'anniv_tout_ou_rien' : 'evg_tout_ou_rien') }
       : await checkAutoValidation(actKey, activite, date, time, pers, ageBreakdown);
 
     // Cas "impossible" (ex: dépassement de l'heure de fermeture) : on ne crée
@@ -2416,6 +2423,10 @@
           const hasImpossible = invalid.some(c => c.impossible);
           if (!hasImpossible && (fd.get('activite') === 'EVG / EVJF' || fd.get('activite') === 'Forfait Anniversaire')) {
             forceAllManual = true;
+          } else if (!hasImpossible && invalid.every(c => c.reason === 'joueur_seul')) {
+            // Joueur seul (23/10/2026) : toutes les sessions partent ensemble
+            // en validation manuelle (au lieu d'être refusées).
+            forceAllManual = 'joueur_seul';
           } else {
             // Nouveau comportement : si au moins une session de la demande
             // multi-sessions n'est pas auto-validable, on n'enregistre RIEN
